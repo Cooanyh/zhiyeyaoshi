@@ -3,7 +3,7 @@
 // @namespace    http://tampermonkey.net/
 // @version      1.0.2
 // @description  【v1.0.2 优化】新增AI助手离开考试页自动关闭功能，优化UI体验。功能：①16倍速 ②智能跳过 ③双模式切换 ④AI助手 ⑤服务启停 ⑥全课程支持。
-// @author       Gemini & YourName
+// @author       Cooanyh & Gemini
 // @match        https://www.sclpa.cn/*
 // @match        https://zyys.ihehang.com/*
 // @grant        GM_xmlhttpRequest

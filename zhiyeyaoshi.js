@@ -12,6 +12,7 @@
 // @grant        GM_setValue
 // @connect      api.deepseek.com
 // @connect      self
+// @license MIT
 // ==/UserScript==
 
 (function() {

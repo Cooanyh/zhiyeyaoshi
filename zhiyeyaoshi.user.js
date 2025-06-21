@@ -108,7 +108,7 @@
                 <button id="mode-switcher-toggle-collapse">－</button>
             </div>
             <div id="mode-switcher-content">
-                <p style="margin: 0; font-size: 14px;">服务状态:</p>
+                <p style="margin: 0; font-size: 14px;">服务开关:</p>
                 <button id="service-toggle-btn" class="panel-btn"></button>
                 <div class="panel-divider"></div>
                 <p style="margin: 0; font-size: 14px;">当前模式:</p>
@@ -188,7 +188,7 @@
             <div id="ai-helper-header"><span>AI 问答助手</span><button id="ai-helper-close-btn">&times;</button></div>
             <div id="ai-helper-content">
                 <label for="ai-helper-textarea">在此输入您的问题：</label>
-                <textarea id="ai-helper-textarea" placeholder="例如：请解释一下什么是“执业药师”..."></textarea>
+                <textarea id="ai-helper-textarea" placeholder="案例：复制所有问题以及选项并询问AI，AI将直接回复答案选项..."></textarea>
                 <button id="ai-helper-submit-btn">向AI提问</button>
                 <label for="ai-helper-result">AI 回答：</label>
                 <div id="ai-helper-result">请先提问...</div>
@@ -427,7 +427,7 @@
 
     function accelerateTime() {
         if (CONFIG.TIME_ACCELERATION_RATE <= 1) return;
-        console.log(`[脚本] 终极时间加速引擎已启动，倍率: ${CONFIG.TIME_ACCELERATION_RATE}x`);
+        console.log(`[脚本] 时间加速已启动，倍率: ${CONFIG.TIME_ACCELERATION_RATE}x`);
 
         const rate = CONFIG.TIME_ACCELERATION_RATE;
 

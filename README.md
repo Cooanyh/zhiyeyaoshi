@@ -29,7 +29,7 @@
 
 ##### 安装本脚本:
 **从 GreasyFork 安装** (推荐):
-点击此链接 [👉 点击安装] (https://greasyfork.org/zh-CN/scripts/540285-%E6%89%A7%E4%B8%9A%E8%8D%AF%E5%B8%88%E7%BB%A7%E7%BB%AD%E6%95%99%E8%82%B2%E8%84%9A%E6%9C%AC-v1-1-0)
+点击此链接 👉 [点击安装] (https://greasyfork.org/zh-CN/scripts/540285-%E6%89%A7%E4%B8%9A%E8%8D%AF%E5%B8%88%E7%BB%A7%E7%BB%AD%E6%95%99%E8%82%B2%E8%84%9A%E6%9C%AC-v1-1-0)
  
 **从 GitHub 安装**:
 点击上方代码区域的 sclpa-pharmacist-script.user.js 文件。
@@ -48,7 +48,7 @@ Tampermonkey 会自动弹出安装提示，点击“安装”即可。
 
 #### v1.1.0 更新：
 ##### ui界面
-1. “公需课程”导航细分
+1. “公需课程”导航细分：
 旧的“公需课程”按钮被一分为二，变成了两个目标明确的独立按钮：
 公需课-视频；
 公需课-文章

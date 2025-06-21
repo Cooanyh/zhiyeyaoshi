@@ -27,14 +27,14 @@
 安装脚本管理器:
 **方式一：从 GreasyFork 安装：**
 - 访问我的脚本发布页面 👉 [点击此处一键安装](https://greasyfork.org/zh-CN/scripts/540285-%E6%89%A7%E4%B8%9A%E8%8D%AF%E5%B8%88%E7%BB%A7%E7%BB%AD%E6%95%99%E8%82%B2%E8%84%9A%E6%9C%AC-v1-1-0)
-- 点击绿色的“安装此脚本”按钮，Tampermonkey会自动接管。
+- 点击绿色的“安装此脚本”按钮，Tampermonkey会自动接管。/n
 **方式二：从scriptcat脚本猫安装 (最推荐）：**
 - 访问我的脚本发布页面 👉 [点击此处一键安装](https://scriptcat.org/zh-CN/script-show-page/3660)
-- 点击“安装脚本”，scriptcat脚本猫会自动接管
+- 点击“安装脚本”，scriptcat脚本猫会自动接管/n
 **方式三：从 GitHub 安装：**
 - 访问我的GitHub项目：https://github.com/Cooanyh/zhiyeyaoshi
 - 在代码文件中找到 .js 后缀的文件并点击打开。
-- 点击 "Raw" 按钮，Tampermonkey会自动弹出安装界面。
+- 点击 "Raw" 按钮，Tampermonkey会自动弹出安装界面。/n
 
 #### 🛠️ 使用说明
 1,安装完成后，访问四川省执业药师继续教育网站。

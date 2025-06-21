@@ -3,7 +3,7 @@
 // @namespace    http://tampermonkey.net/
 // @version      1.1.0
 // @description  【v1.1.0】UI升级！新增“公需课-视频/文章”独立导航，实现全自动智能标签页切换，操作更精准、更便捷。
-// @author       Cooanyh & Gemini
+// @author       Coren & Gemini
 // @match        https://www.sclpa.cn/*
 // @match        https://zyys.ihehang.com/*
 // @grant        GM_xmlhttpRequest

@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name         四川省执业药师继续教育 (v1.1.0)
+// @name         四川省执业药师继续教育 (v1.1.0bak)
 // @namespace    http://tampermonkey.net/
 // @version      1.1.0
 // @description  【v1.1.0】UI升级！新增“公需课-视频/文章”独立导航，实现全自动智能标签页切换，操作更精准、更便捷。

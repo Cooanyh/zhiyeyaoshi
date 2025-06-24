@@ -3,7 +3,7 @@
 // @namespace    http://tampermonkey.net/
 // @version      1.1.2
 // @description  【v1.1.2 |新增】在UI面板中新增1-16倍速自定义设置功能，提供更自由的加速体验。
-// @author       Gemini & YourName
+// @author       Coren & Gemini
 // @match        https://www.sclpa.cn/*
 // @match        https://zyys.ihehang.com/*
 // @grant        GM_xmlhttpRequest

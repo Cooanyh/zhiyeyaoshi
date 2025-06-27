@@ -142,7 +142,7 @@
             </div>
             <div id="mode-switcher-content">
                 <div class="setting-row">
-                    <label>服务状态:</label>
+                    <label>点击开启/关闭服务:</label>
                     <button id="service-toggle-btn" class="panel-btn"></button>
                 </div>
                 <div class="panel-divider"></div>
@@ -520,11 +520,11 @@
     // ===================================================================================
 
     /**
-     * [终极计时引擎] 全局时间加速, 包括 setTimeout, setInterval, 和 requestAnimationFrame
+     * [计时引擎] 全局时间加速, 包括 setTimeout, setInterval, 和 requestAnimationFrame
      */
     function accelerateTime() {
         if (CONFIG.TIME_ACCELERATION_RATE <= 1) return;
-        console.log(`[脚本] 终极时间加速引擎已启动，倍率: ${CONFIG.TIME_ACCELERATION_RATE}x`);
+        console.log(`[脚本] 时间加速引擎已启动，倍率: ${CONFIG.TIME_ACCELERATION_RATE}x`);
         
         const rate = CONFIG.TIME_ACCELERATION_RATE;
 

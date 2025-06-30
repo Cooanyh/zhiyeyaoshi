@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         四川省执业药师继续教育 (v1.1.2)
+// @name         四川省执业药师继续教育 (v1.1.5)
 // @namespace    http://tampermonkey.net/
-// @version      1.1.2
-// @description  【v1.1.2 |新增】在UI面板中新增1-16倍速自定义设置功能，提供更自由的加速体验。
+// @version      1.1.5
+// @description  【v1.1.5 |新增】在UI面板中新增API Key设置功能，方便用户配置AI服务。
 // @author       Coren & Gemini
 // @match        https://www.sclpa.cn/*
 // @match        https://zyys.ihehang.com/*
@@ -22,19 +22,18 @@
     // --- 脚本配置 (Script Configuration) ---
     // ===================================================================================
 
-    // --- 从存储中获取用户自定义的倍速，若无则默认为16倍 ---
+    // Get user-defined playback speed from storage, default to 16x if not set
     let currentPlaybackRate = GM_getValue('sclpa_playback_rate', 16.0);
+    // Get user-defined AI API Key from storage
+    let aiApiKey = GM_getValue('sclpa_deepseek_api_key', '请在此处填入您自己的 DeepSeek API Key');
 
     const CONFIG = {
-        // 使用用户自定义的倍速
+        // Use user-defined playback speed
         VIDEO_PLAYBACK_RATE: currentPlaybackRate,
         TIME_ACCELERATION_RATE: currentPlaybackRate,
         AI_API_SETTINGS: {
-            // =======================================================================
-            // !!! 重要：请在此处填入您自己的 DeepSeek API Key !!!
-            // !!! IMPORTANT: Please replace the key below with your own DeepSeek API Key !!!
-            // =======================================================================
-            API_KEY: '请在此处填入您自己的 DeepSeek API Key',
+            // IMPORTANT: Get API Key from storage
+            API_KEY: aiApiKey,
             DEEPSEEK_API_URL: 'https://api.deepseek.com/chat/completions',
         },
     };
@@ -55,7 +54,7 @@
     // ===================================================================================
 
     /**
-     * 通过选择器和文本内容查找元素
+     * Find element by selector and text content
      * @param {string} selector - CSS selector.
      * @param {string} text - The text to match.
      * @returns {HTMLElement|null}
@@ -69,18 +68,18 @@
     }
 
     /**
-     * 安全地点击一个元素
+     * Safely click an element
      * @param {HTMLElement} element - The element to click.
      */
     function clickElement(element) {
         if (element && typeof element.click === 'function') {
-            console.log('[脚本] 点击元素:', element);
+            console.log('[Script] Clicking element:', element);
             element.click();
         }
     }
 
     /**
-     * 智能判断"未完成"标签是否处于激活状态 (兼容专业课和公需课)
+     * Intelligently determine if "unfinished" tab is active (compatible with professional and public courses)
      * @param {HTMLElement} tabElement - The tab element to check.
      * @returns {boolean}
      */
@@ -90,7 +89,7 @@
     }
 
     /**
-     * 轻量级函数挂钩工具，灵感来自 hooker.js
+     * Lightweight function hooking tool, inspired by hooker.js
      * @param {object} object The object containing the method (e.g., window).
      * @param {string} methodName The name of the method to hook (e.g., 'setTimeout').
      * @param {(original: Function) => Function} hooker A function that receives the original function and returns a new function.
@@ -106,7 +105,7 @@
     // ===================================================================================
 
     /**
-     * 创建脚本的控制面板 (模式切换、导航等)
+     * Create the script control panel (mode switching, navigation, etc.)
      */
     function createModeSwitcherPanel() {
         if (isModePanelCreated) return;
@@ -131,6 +130,9 @@
             .speed-slider-container { display: flex; align-items: center; width: 100%; gap: 10px; }
             #speed-slider { flex-grow: 1; }
             #speed-display { font-weight: bold; font-size: 14px; color: #007bff; min-width: 45px; text-align: right; }
+            .api-key-input { width: calc(100% - 20px); padding: 8px; margin-top: 5px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; font-size: 13px; }
+            .api-key-action-btn { background-color: #6c757d; margin-top: 5px; }
+            .api-key-action-btn:hover { background-color: #5a6268; }
         `);
 
         const panel = document.createElement('div');
@@ -160,6 +162,11 @@
                 </div>
                 <div class="panel-divider"></div>
                 <div class="setting-row">
+                    <label>AI API Key 设置:</label>
+                    <button id="api-key-setting-btn" class="panel-btn api-key-action-btn">设置 API Key</button>
+                </div>
+                <div class="panel-divider"></div>
+                <div class="setting-row">
                      <label>快速导航:</label>
                     <div style="display: flex; flex-direction: column; gap: 5px; width: 100%;">
                         <button id="nav-specialized-btn" class="nav-btn">专业课程</button>
@@ -179,6 +186,7 @@
         const navPublicArticleBtn = document.getElementById('nav-public-article-btn');
         const speedSlider = document.getElementById('speed-slider');
         const speedDisplay = document.getElementById('speed-display');
+        const apiKeySettingBtn = document.getElementById('api-key-setting-btn'); // New API Key button
 
         const updateServiceButton = (isActive) => {
             serviceBtn.innerText = isActive ? '服务运行中' : '服务已暂停';
@@ -208,7 +216,7 @@
         speedSlider.addEventListener('change', () => {
             const newRate = parseFloat(speedSlider.value);
             GM_setValue('sclpa_playback_rate', newRate);
-            console.log(`[脚本] 倍速已设置为: ${newRate}x。正在刷新页面应用...`);
+            console.log(`[Script] Playback speed set to: ${newRate}x. Refreshing page to apply...`);
             window.location.reload();
         });
         collapseBtn.onclick = () => {
@@ -225,11 +233,22 @@
             window.location.href = 'https://zyys.ihehang.com/#/publicDemand';
         };
 
+        // New API Key setting button click handler
+        apiKeySettingBtn.onclick = () => {
+            const currentKey = GM_getValue('sclpa_deepseek_api_key', '');
+            const newKey = prompt('请输入您的 DeepSeek AI API Key:', currentKey);
+            if (newKey !== null) { // User didn't click cancel
+                GM_setValue('sclpa_deepseek_api_key', newKey.trim());
+                CONFIG.AI_API_SETTINGS.API_KEY = newKey.trim(); // Update current config immediately
+                alert('API Key 已保存！下次页面加载时生效。');
+            }
+        };
+
         makeDraggable(panel, document.getElementById('mode-switcher-header'));
     }
 
     /**
-     * 创建AI助手面板，并确保每次都是全新的
+     * Create AI helper panel, ensuring it's always new
      */
     function createManualAiHelper() {
         const existingPanel = document.getElementById('ai-helper-panel');
@@ -245,6 +264,7 @@
             #ai-helper-textarea { width: 100%; box-sizing: border-box; height: 100px; padding: 8px; border: 1px solid #ccc; border-radius: 5px; resize: vertical; }
             #ai-helper-submit-btn { padding: 10px 15px; background-color: #5cb85c; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; }
             #ai-helper-result { margin-top: 10px; padding: 10px; background-color: #ffffff; border: 1px solid #eee; border-radius: 5px; min-height: 50px; max-height: 200px; overflow-y: auto; white-space: pre-wrap; word-wrap: break-word; }
+            #ai-key-warning { color: #dc3545; font-size: 12px; margin-top: 5px; display: none; }
         `);
         const panel = document.createElement('div');
         panel.id = 'ai-helper-panel';
@@ -253,6 +273,7 @@
             <div id="ai-helper-content">
                 <label for="ai-helper-textarea">在此输入您的问题：</label>
                 <textarea id="ai-helper-textarea" placeholder="案例：复制所有问题以及选项并询问AI，AI将直接回复答案选项..."></textarea>
+                <div id="ai-key-warning">请先在控制面板中设置您的 DeepSeek API Key！</div>
                 <button id="ai-helper-submit-btn">向AI提问</button>
                 <label for="ai-helper-result">AI 回答：</label>
                 <div id="ai-helper-result">请先提问...</div>
@@ -263,10 +284,24 @@
         const closeBtn = document.getElementById('ai-helper-close-btn');
         const textarea = document.getElementById('ai-helper-textarea');
         const resultDiv = document.getElementById('ai-helper-result');
+        const keyWarning = document.getElementById('ai-key-warning');
+
+        // Check if API Key is set
+        if (!CONFIG.AI_API_SETTINGS.API_KEY || CONFIG.AI_API_SETTINGS.API_KEY === '请在此处填入您自己的 DeepSeek API Key') {
+            keyWarning.style.display = 'block';
+            submitBtn.disabled = true;
+            submitBtn.innerText = '请先设置 API Key';
+        }
+
         closeBtn.onclick = () => panel.remove();
         submitBtn.onclick = async () => {
             const question = textarea.value.trim();
             if (!question) { resultDiv.innerText = '错误：问题不能为空！'; return; }
+            if (!CONFIG.AI_API_SETTINGS.API_KEY || CONFIG.AI_API_SETTINGS.API_KEY === '请在此处填入您自己的 DeepSeek API Key') {
+                resultDiv.innerText = '错误：请先设置您的 DeepSeek API Key！';
+                return;
+            }
+
             submitBtn.disabled = true;
             submitBtn.innerText = 'AI思考中...';
             resultDiv.innerText = '正在向AI发送请求...';
@@ -283,7 +318,7 @@
     }
 
     /**
-     * 使UI面板可拖拽
+     * Make UI panel draggable
      * @param {HTMLElement} panel - The panel element to be dragged.
      * @param {HTMLElement} header - The header element that acts as the drag handle.
      */
@@ -325,12 +360,16 @@
     // ===================================================================================
 
     /**
-     * 向DeepSeek AI发送请求并获取答案
-     * @param {string} question - 用户输入的问题
+     * Send request to DeepSeek AI and get answer
+     * @param {string} question - User's question
      * @returns {Promise<string>}
      */
     function askAiForAnswer(question) {
         return new Promise((resolve, reject) => {
+            if (!CONFIG.AI_API_SETTINGS.API_KEY || CONFIG.AI_API_SETTINGS.API_KEY === '请在此处填入您自己的 DeepSeek API Key') {
+                reject('API Key 未设置或不正确，请在控制面板中设置！');
+                return;
+            }
             const payload = { model: "deepseek-chat", messages: [{ "role": "system", "content": "你是一个乐于助人的问题回答助手。聚焦于执业药师相关的内容，请根据用户提出的问题，提供准确、清晰、的解答。注意回答时仅仅包括答案，不允许其他额外任何解释" }, { "role": "user", "content": question }], temperature: 0.2 };
             GM_xmlhttpRequest({
                 method: 'POST',
@@ -339,7 +378,7 @@
                 data: JSON.stringify(payload),
                 timeout: 20000,
                 onload: (response) => { try { const result = JSON.parse(response.responseText); if (result.choices && result.choices.length > 0) { resolve(result.choices[0].message.content.trim()); } else { reject('AI响应格式不正确。'); } } catch (e) { reject(`解析AI响应失败: ${e.message}`); } },
-                onerror: (err) => reject(`请求AI API网络错误`),
+                onerror: (err) => reject(`请求AI API网络错误: ${err.statusText || '未知错误'}`),
                 ontimeout: () => reject('请求AI API超时')
             });
         });
@@ -351,7 +390,7 @@
     // ===================================================================================
 
     /**
-     * 处理课程列表页，兼容视频和文章
+     * Handle course list page, compatible with video and article
      * @param {string} courseType - '专业课' or '公需课'.
      */
     function handleCourseListPage(courseType) {
@@ -362,7 +401,7 @@
             const targetTabText = publicTarget === 'article' ? '文章资讯' : '视频课程';
             const targetTab = findElementByText('.radioTab > .radio-tab-tag', targetTabText);
             if (targetTab && !targetTab.classList.contains('radio-tab-tag-ed')) {
-                console.log(`[脚本] 目标为 ${targetTabText}, 切换标签页...`);
+                console.log(`[Script] Target is ${targetTabText}, switching tab...`);
                 clickElement(targetTab);
                 return;
             }
@@ -391,18 +430,18 @@
                 }
 
                  if (targetCourseElement) {
-                    console.log(`[脚本] ${courseType}: 找到第一个未完成的项目，点击进入学习...`);
+                    console.log(`[Script] ${courseType}: Found the first unfinished item, clicking to enter study...`);
                     const clickableElement = targetCourseElement.querySelector('.play-card-box-right-text') || targetCourseElement;
                     clickElement(clickableElement);
                  } else {
-                    console.log(`[脚本] ${courseType}: 在“未完成”页中未找到任何【未完成】的项目。`);
+                    console.log(`[Script] ${courseType}: No unfinished items found on "unfinished" page.`);
                  }
             }, 2500);
         }
     }
 
     /**
-     * 学习页面的主处理函数
+     * Main handler for learning page
      */
     function handleLearningPage() {
         if (!isServiceActive) return;
@@ -426,7 +465,7 @@
     }
 
     /**
-     * 处理带章节目录的课程 (专业课)
+     * Handle multi-chapter courses (professional courses)
      * @param {NodeListOf<Element>} directoryItems
      */
     function handleMultiChapterCourse(directoryItems) {
@@ -461,7 +500,7 @@
     }
 
     /**
-     * 处理无章节目录的视频课程 (公需课)
+     * Handle single media courses (public courses)
      * @param {HTMLVideoElement} video
      */
     function handleSingleMediaCourse(video) {
@@ -477,19 +516,19 @@
     }
 
     /**
-     * 处理文章资讯页面
+     * Handle article reading page
      */
     function handleArticleReadingPage() {
-        console.log('[脚本] 检测到文章页面，开始监控进度...');
+        console.log('[Script] Detected article page, monitoring progress...');
         const progressLabel = document.querySelector('.action-btn .label');
         if (progressLabel && (progressLabel.innerText.includes('100') || progressLabel.innerText.includes('待考试'))) {
-            console.log('[脚本] 文章学习已完成，准备返回列表。');
+            console.log('[Script] Article study completed, preparing to return to list.');
             safeNavigateAfterCourseCompletion();
         }
     }
 
     /**
-     * 处理考试页面
+     * Handle exam page
      */
     function handleExamPage() {
         if (!document.getElementById('ai-helper-panel')) {
@@ -502,7 +541,7 @@
     }
 
     /**
-     * 处理通用弹窗
+     * Handle generic popups
      */
     function handleGenericPopups() {
         if (!isServiceActive || isPopupBeingHandled) return;
@@ -520,11 +559,11 @@
     // ===================================================================================
 
     /**
-     * [计时引擎] 全局时间加速, 包括 setTimeout, setInterval, 和 requestAnimationFrame
+     * [Time Engine] Global time acceleration, including setTimeout, setInterval, and requestAnimationFrame
      */
     function accelerateTime() {
         if (CONFIG.TIME_ACCELERATION_RATE <= 1) return;
-        console.log(`[脚本] 时间加速引擎已启动，倍率: ${CONFIG.TIME_ACCELERATION_RATE}x`);
+        console.log(`[Script] Time acceleration engine started, rate: ${CONFIG.TIME_ACCELERATION_RATE}x`);
         
         const rate = CONFIG.TIME_ACCELERATION_RATE;
 
@@ -549,13 +588,13 @@
     }
 
     /**
-     * 防止网页重置视频倍速
+     * Prevent webpage from resetting video playback rate
      */
     function preventPlaybackRateLock() {
-        console.log('[脚本] 启动视频倍速防回滚机制。');
+        console.log('[Script] Starting video playback rate anti-rollback mechanism.');
         hook(Object, 'defineProperty', (original) => function(target, property, descriptor) {
             if (target instanceof HTMLMediaElement && property === 'playbackRate') {
-                console.log('[脚本] 检测到网站尝试锁定视频倍速，已拦截。');
+                console.log('[Script] Detected website attempting to lock video playback rate, intercepted.');
                 return;
             }
             return original.apply(this, arguments);
@@ -564,7 +603,7 @@
 
 
     /**
-     * 安全地导航回对应的课程列表
+     * Safely navigate back to the corresponding course list
      */
     function safeNavigateBackToList() {
         const hash = window.location.hash.toLowerCase();
@@ -575,7 +614,7 @@
     }
 
     /**
-     * 在一个课程(包含其所有章节)完成后，决定下一步动作
+     * Decide next action after a course (including all its chapters) is completed
      */
     function safeNavigateAfterCourseCompletion() {
         const hash = window.location.hash.toLowerCase();
@@ -601,7 +640,7 @@
     // ===================================================================================
 
     /**
-     * 页面路由器，根据URL的hash决定执行哪个处理函数
+     * Page router, determines which handler function to execute based on URL hash
      */
     function router() {
         const hash = window.location.hash.toLowerCase();
@@ -617,7 +656,7 @@
     }
 
     /**
-     * 脚本的主循环，每2秒执行一次
+     * Main script loop, executed every 2 seconds
      */
     function mainLoop() {
         if (window.location.hash !== currentPageHash) {
@@ -640,11 +679,11 @@
     }
 
     /**
-     * 启动脚本
+     * Start the script
      */
     window.addEventListener('load', () => {
-        console.log(`[脚本] 四川执业药师继续教育 (v1.1.2) 已启动。`);
-        console.log(`[脚本] 服务状态: ${isServiceActive ? '运行中' : '已暂停'} | 当前模式: ${scriptMode} | 当前倍速: ${currentPlaybackRate}x`);
+        console.log(`[Script] Sichuan Licensed Pharmacist Continuing Education (v1.1.3) started.`);
+        console.log(`[Script] Service status: ${isServiceActive ? 'Running' : 'Paused'} | Current mode: ${scriptMode} | Current speed: ${currentPlaybackRate}x`);
         currentPageHash = window.location.hash;
         
         preventPlaybackRateLock();

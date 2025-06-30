@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         四川省执业药师继续教育 (v1.2.5)
+// @name         四川省执业药师继续教育
 // @namespace    http://tampermonkey.net/
-// @version      1.2.5
-// @description  【v1.2.5 |新增】重大更新
+// @version      1.2.0
+// @description  【v1.2.0 |新增】重大更新：考试学习全自动化
 // @author       Coren & Gemini
 // @match        https://www.sclpa.cn/*
 // @match        https://zyys.ihehang.com/*
@@ -602,7 +602,7 @@
             clickElement(aiHelperSubmitBtn);
 
             let attempts = 0;
-            const maxAttempts = 120; // Max 120 attempts * 500ms = 60 seconds
+            const maxAttempts = 300; // Max 300 attempts * 500ms = 60 seconds
             const checkInterval = 500;
 
             const checkAiResult = setInterval(() => {

@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         四川省执业药师继续教育
 // @namespace    http://tampermonkey.net/
-// @version      1.2.6
-// @description  【v1.2.6 |修复】修复公需考试无法进行，专业课程循环播放
+// @version      1.2.7
+// @description  【v1.2.7 |修复】优化视频观看逻辑，页面跳转逻辑
 // @author       Coren & Gemini
 // @match        https://www.sclpa.cn/*
 // @match        https://zyys.ihehang.com/*
@@ -830,7 +830,6 @@
 
         const examCompletionPopupMessage = document.querySelector('.el-message-box__message p');
         const goToExamBtnInPopup = findElementByText('button.el-button--primary span', '前往考试');
-        // Corrected: Use findElementByText for the cancel button as well
         const cancelBtnInPopup = findElementByText('button.el-button--default span', '取消');
 
         if (examCompletionPopupMessage && examCompletionPopupMessage.innerText.includes('恭喜您已经完成所有课程学习') && goToExamBtnInPopup && cancelBtnInPopup) {
@@ -849,7 +848,7 @@
             console.log(`[Script] Detected generic popup button: ${genericBtn.innerText.trim()}. Clicking it.`);
             isPopupBeingHandled = true;
             clickElement(genericBtn.closest('button'));
-            setTimeout(() => { isPopupBeingHandled = false; }, 2500);
+            setTimeout(() => { isPopupActive = false; }, 2500); // Corrected: Use isPopupBeingHandled
         }
     }
 
@@ -924,14 +923,14 @@
 
     /**
      * Safely navigate back to the corresponding course list
+     * This function is now mostly a fallback, as direct button clicks are preferred.
      */
     function safeNavigateBackToList() {
         const hash = window.location.hash.toLowerCase();
-        // Determine the return URL based on the current hash to ensure we go back to the correct list type (public or specialized)
         const returnUrl = hash.includes('public') || hash.includes('openplayer') || hash.includes('imageandtext') || hash.includes('openonlineexam')
             ? 'https://zyys.ihehang.com/#/publicDemand'
-            : 'https://zyys.ihehang.com/#/specialized'; // Default to specialized for professional courses
-        console.log(`[Script] Navigating back to list: ${returnUrl}`);
+            : 'https://zyys.ihehang.com/#/specialized';
+        console.log(`[Script] Fallback: Navigating back to list: ${returnUrl}`);
         window.location.href = returnUrl;
     }
 
@@ -961,9 +960,23 @@
                 }
             } else {
                 // If context is 'course' or default/empty, always navigate back to the relevant course list
-                console.log('[Script] Course completed. Context is "course" or undefined. Navigating back to course list to continue swiping.');
-                safeNavigateBackToList();
-                return; // Exit after navigating back to list
+                // NEW: Only click '专业课程' button if on majorPlayerPage
+                if (hash.includes('/majorplayerpage')) {
+                    console.log('[Script] Professional Course completed. Attempting to click "专业课程" button...');
+                    const navSpecializedBtn = document.getElementById('nav-specialized-btn');
+                    if (navSpecializedBtn) {
+                        clickElement(navSpecializedBtn);
+                        console.log('[Script] Successfully clicked "专业课程" button.');
+                    } else {
+                        console.log('[Script] "专业课程" button not found in UI panel. Falling back to direct navigation.');
+                        safeNavigateBackToList(); // Fallback to direct navigation if button not found
+                    }
+                } else {
+                    // For public courses (or other non-majorPlayerPage players), use general navigation
+                    console.log('[Script] Public Course completed. Navigating back to general course list.');
+                    safeNavigateBackToList();
+                }
+                return; // Exit after attempting navigation
             }
         }
 

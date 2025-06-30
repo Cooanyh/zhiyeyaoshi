@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         四川省执业药师继续教育
 // @namespace    http://tampermonkey.net/
-// @version      1.2.4
-// @description  【v1.2.4 |修复】解决专业课循环点击、倍速失效及公需课跳转问题
+// @version      1.2.6
+// @description  【v1.2.6 |修复】修复公需考试无法进行，专业课程循环播放
 // @author       Coren & Gemini
 // @match        https://www.sclpa.cn/*
 // @match        https://zyys.ihehang.com/*
@@ -42,11 +42,11 @@
     let isServiceActive = GM_getValue('sclpa_service_active', true);
     let scriptMode = GM_getValue('sclpa_script_mode', 'video');
     let isTimeAccelerated = false;
-    let unfinishedTabClicked = false;
+    let unfinishedTabClicked = false; // Flag to track if "未完成" tab has been clicked in the current page session
     let isPopupBeingHandled = false;
     let isModePanelCreated = false;
     let currentPageHash = '';
-    let isChangingChapter = false; // Flag to indicate if a chapter change is in progress
+    let isChangingChapter = false;
     let isAiAnswerPending = false; // Flag to track if AI answer is currently being awaited
     let currentQuestionBatchText = ''; // Renamed from currentQuestionText to reflect batch processing
     let isSubmittingExam = false; // Flag to indicate if exam submission process is ongoing
@@ -391,8 +391,7 @@
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${CONFIG.AI_API_SETTINGS.API_KEY}` },
                 data: JSON.stringify(payload),
                 timeout: 20000,
-                onload: (response) => { try { const result = JSON.parse(response.responseText); if (result.choices && result.choices.length > 0) { resolve(result.choices[0].message.content.trim()); } else { reject('AI响应格式不正确。'); } } catch (e) { reject(`解析AI响应失败: ${e.message}`); } }
-                ,
+                onload: (response) => { try { const result = JSON.parse(response.responseText); if (result.choices && result.choices.length > 0) { resolve(result.choices[0].message.content.trim()); } else { reject('AI响应格式不正确。'); } } catch (e) { reject(`解析AI响应失败: ${e.message}`); } },
                 onerror: (err) => reject(`请求AI API网络错误: ${err.statusText || '未知错误'}`),
                 ontimeout: () => reject('请求AI API超时')
             });
@@ -405,71 +404,69 @@
     // ===================================================================================
 
     /**
-     * New helper function to encapsulate finding and clicking the first unfinished course
-     * @param {string} courseType - '专业课' or '公需课'.
-     */
-    function attemptClickFirstUnfinishedCourse(courseType) {
-        let targetCourseElement = document.querySelector('.play-card:not(:has(.el-icon-success))');
-
-        if (!targetCourseElement) {
-            const allArticles = document.querySelectorAll('.information-card');
-            for (const article of allArticles) {
-                const statusTag = article.querySelector('.status');
-                if (statusTag && statusTag.innerText.trim() === '未完成') {
-                    targetCourseElement = article;
-                    break;
-                }
-            }
-        }
-
-        if (targetCourseElement) {
-            console.log(`[Script] ${courseType}: Found the first unfinished item, clicking to enter study...`);
-            const clickableElement = targetCourseElement.querySelector('.play-card-box-right-text') || targetCourseElement;
-            clickElement(clickableElement);
-        } else {
-            console.log(`[Script] ${courseType}: No unfinished items found on "unfinished" page.`);
-            // If no unfinished items, maybe navigate back to the main course list or indicate completion
-            // For now, let it loop in mainLoop, it will eventually re-check.
-        }
-    }
-
-    /**
      * Handle course list page, compatible with video and article
      * @param {string} courseType - '专业课' or '公需课'.
      */
     function handleCourseListPage(courseType) {
         if (!isServiceActive) return;
 
+        // Handle public course tab switching first
         if (courseType === '公需课') {
             const publicTarget = GM_getValue('sclpa_public_target', 'video');
             const targetTabText = publicTarget === 'article' ? '文章资讯' : '视频课程';
             const targetTab = findElementByText('.radioTab > .radio-tab-tag', targetTabText);
             if (targetTab && !targetTab.classList.contains('radio-tab-tag-ed')) {
-                console.log(`[Script] Target is ${targetTabText}, switching tab...`);
+                console.log(`[Script] Public Course: Target is ${targetTabText}, switching tab...`);
                 clickElement(targetTab);
-                // After clicking the tab, give it more time to load content
-                setTimeout(() => {
-                    attemptClickFirstUnfinishedCourse(courseType);
-                }, 3500); // Increased delay for tab content load
+                // After clicking the tab, wait for content to load, then re-run this function
+                setTimeout(() => handleCourseListPage(courseType), 1000); // Re-evaluate after tab switch
                 return;
             }
         }
 
         const unfinishedTab = findElementByText('div.radio-tab-tag', '未完成');
+
+        // Step 1: Click "未完成" tab if not already active and not yet clicked in this session
+        // The `unfinishedTabClicked` flag prevents rapid re-clicks within the same mainLoop cycle
         if (unfinishedTab && !isUnfinishedTabActive(unfinishedTab) && !unfinishedTabClicked) {
-            console.log('[Script] Clicking "未完成" tab.');
+            console.log('[Script] Course List: Found "未完成" tab and it is not active, clicking it...');
             clickElement(unfinishedTab);
-            unfinishedTabClicked = true;
-            // After clicking the tab, give it more time to load content
+            unfinishedTabClicked = true; // Mark as clicked for this session
+            // After clicking, wait for the page to filter/load the unfinished list
             setTimeout(() => {
-                attemptClickFirstUnfinishedCourse(courseType);
-            }, 3500); // Increased delay for tab content load
-            return;
+                console.log('[Script] Course List: Waiting after clicking "未完成" tab, then re-evaluating...');
+                // After delay, re-call handleCourseListPage to re-check the active state and proceed.
+                handleCourseListPage(courseType);
+            }, 3000); // Increased delay to 3 seconds for tab content to load
+            return; // Crucial to prevent immediate fall-through to course finding
         }
 
-        if (unfinishedTab && (isUnfinishedTabActive(unfinishedTab) || unfinishedTabClicked)) {
-            // If already on the unfinished tab or it was just clicked, proceed to find course
-            attemptClickFirstUnfinishedCourse(courseType);
+        // Step 2: If "未完成" tab is active, proceed to find and click the first unfinished course.
+        // This block will only execute if the tab is truly active.
+        if (unfinishedTab && isUnfinishedTabActive(unfinishedTab)) {
+            setTimeout(() => {
+                let targetCourseElement = document.querySelector('.play-card:not(:has(.el-icon-success))');
+
+                if (!targetCourseElement) {
+                    // Fallback for article cards if play-card not found (for public courses)
+                    const allArticles = document.querySelectorAll('.information-card');
+                    for (const article of allArticles) {
+                        const statusTag = article.querySelector('.status');
+                        if (statusTag && statusTag.innerText.trim() === '未完成') {
+                            targetCourseElement = article;
+                            break;
+                        }
+                    }
+                }
+
+                if (targetCourseElement) {
+                    console.log(`[Script] ${courseType}: Found the first unfinished item, clicking to enter study...`);
+                    const clickableElement = targetCourseElement.querySelector('.play-card-box-right-text') || targetCourseElement;
+                    clickElement(clickableElement);
+                } else {
+                    console.log(`[Script] ${courseType}: No unfinished items found on "未完成" page. All courses might be completed or elements not yet loaded.`);
+                }
+            }, 1500); // Delay before finding the course element
         }
     }
 
@@ -502,91 +499,35 @@
      * @param {NodeListOf<Element>} directoryItems
      */
     function handleMultiChapterCourse(directoryItems) {
-        if (isChangingChapter) {
-            console.log('[Script] Multi-chapter course: Chapter change in progress, deferring actions.');
+        if (isChangingChapter) return;
+        const video = document.querySelector('video');
+        if (video && !video.paused) {
+            video.playbackRate = CONFIG.VIDEO_PLAYBACK_RATE;
+            video.muted = true;
             return;
         }
 
-        const video = document.querySelector('video');
-        // Correctly identify the currently active chapter using the 'active' class
-        const currentActiveChapter = document.querySelector('.catalogue-item.active'); 
-        console.log('[Script] Current active chapter element:', currentActiveChapter ? currentActiveChapter.innerText.trim() : 'None');
-
-        let firstUncompletedChapter = null;
-        let allChaptersCompleted = true; // Assume all completed until proven otherwise
-
-        // Find the first uncompleted chapter (based on icon)
+        let nextChapter = null;
         for (const item of directoryItems) {
             if (!item.querySelector('.el-icon-success')) {
-                allChaptersCompleted = false;
-                firstUncompletedChapter = item; // This is the first chapter without a success icon
+                nextChapter = item;
                 break;
             }
         }
 
-        // Scenario 1: All chapters are marked as completed by icon.
-        if (allChaptersCompleted) {
-            console.log('[Script] Multi-chapter course: All chapters marked as completed by icon. Navigating after course completion.');
-            safeNavigateAfterCourseCompletion();
-            return;
-        }
-
-        // Scenario 2: There are uncompleted chapters.
-        // If the first uncompleted chapter is NOT the currently active one, click it to navigate.
-        // Use classList.contains('active') for robust check.
-        if (firstUncompletedChapter && !firstUncompletedChapter.classList.contains('active')) {
-            console.log('[Script] Multi-chapter course: Detected first uncompleted chapter is not active. Clicking to navigate.');
-            clickElement(firstUncompletedChapter);
-            isChangingChapter = true; // Set flag to prevent rapid re-clicks
-            setTimeout(() => { isChangingChapter = false; }, 6000); // Give time for chapter and video to load
-            return;
-        }
-
-        // Scenario 3: The first uncompleted chapter IS the currently active one.
-        // Or, currentActiveChapter is null but firstUncompletedChapter exists (meaning we just landed on a chapter page).
-        // In this case, focus on playing the video for this active/target chapter.
-        // We proceed if firstUncompletedChapter exists AND it is the active one.
-        if (firstUncompletedChapter && firstUncompletedChapter.classList.contains('active')) {
-             console.log('[Script] Multi-chapter course: First uncompleted chapter is active. Focusing on video playback.');
-            if (!video) {
-                console.log('[Script] Multi-chapter course: Video element not found for active chapter. Waiting for video to load.');
-                return; // Wait for video element to appear
-            }
-
-            // Always attempt to set playback rate
-            if (video.playbackRate !== CONFIG.VIDEO_PLAYBACK_RATE) {
-                video.playbackRate = CONFIG.VIDEO_PLAYBACK_RATE;
-                console.log(`[Script] Multi-chapter course: Forcing video playbackRate to ${CONFIG.VIDEO_PLAYBACK_RATE}x.`);
-            }
-            video.muted = true; // Ensure video is muted
-
-            // Log video state for debugging
-            console.log(`[Script] Video State: paused=${video.paused}, ended=${video.ended}, currentTime=${video.currentTime.toFixed(2)}, duration=${video.duration.toFixed(2)}, readyState=${video.readyState}`);
-
-            const completionThreshold = 0.95; // Video must play 95%
-
-            // Check if video is ready and playing, or needs to be played
-            if (video.readyState >= 3) { // HAVE_FUTURE_DATA (3) or HAVE_ENOUGH_DATA (4)
-                if (video.paused || video.ended || video.currentTime === 0) {
-                    console.log('[Script] Multi-chapter course: Video paused/ended/at start, attempting to play.');
-                    video.play().catch(e => {
-                        console.error("[Script] Failed to play video in current chapter (catch block):", e);
-                    });
-                } else {
-                    // Video is playing, check progress
-                    if (video.duration > 0 && (video.currentTime / video.duration) >= completionThreshold) {
-                        console.log('[Script] Multi-chapter course: Video reached completion threshold. Navigating to next step.');
-                        safeNavigateAfterCourseCompletion(); // Current chapter video is done
-                    } else {
-                        console.log('[Script] Multi-chapter course: Video is playing, waiting for chapter completion.');
-                    }
-                }
-            } else {
-                console.log('[Script] Multi-chapter course: Video not ready (readyState < 3). Waiting for more data.');
-                // Do not attempt to play if not ready, just wait for next loop iteration
+        if (nextChapter) {
+            const isAlreadySelected = nextChapter.classList.contains('catalogue-item-ed');
+            if (isAlreadySelected && video && video.paused) {
+                video.play().catch(e => {});
+            } else if (!isAlreadySelected) {
+                console.log('[Script] Moving to next chapter:', nextChapter.innerText.trim());
+                clickElement(nextChapter);
+                isChangingChapter = true;
+                setTimeout(() => { isChangingChapter = false; }, 4000); // Give time for chapter to load
             }
         } else {
-            console.warn('[Script] Multi-chapter course: Unexpected state. This should ideally not be reached if uncompleted chapters exist and are handled.');
+            console.log('[Script] All chapters completed for current multi-chapter course.');
+            safeNavigateAfterCourseCompletion();
         }
     }
 
@@ -598,40 +539,12 @@
         if (!video.dataset.singleVidControlled) {
             video.addEventListener('ended', safeNavigateAfterCourseCompletion);
             video.dataset.singleVidControlled = 'true';
-            console.log('[Script] Single media course: Added "ended" event listener.');
+            console.log('[Script] Added "ended" event listener for single media course.');
         }
-
-        // Always attempt to set playback rate
-        if (video.playbackRate !== CONFIG.VIDEO_PLAYBACK_RATE) {
-            video.playbackRate = CONFIG.VIDEO_PLAYBACK_RATE;
-            console.log(`[Script] Single media course: Forcing video playbackRate to ${CONFIG.VIDEO_PLAYBACK_RATE}x.`);
-        }
-        video.muted = true; // Ensure video is muted
-
-        // Log video state for debugging
-        console.log(`[Script] Video State: paused=${video.paused}, ended=${video.ended}, currentTime=${video.currentTime.toFixed(2)}, duration=${video.duration.toFixed(2)}, readyState=${video.readyState}`);
-
-        const completionThreshold = 0.95; // 95% of the video played
-
-        // Check if video is ready and playing, or needs to be played
-        if (video.readyState >= 3) { // HAVE_FUTURE_DATA (3) or HAVE_ENOUGH_DATA (4)
-            if (video.paused || video.ended || video.currentTime === 0) {
-                console.log('[Script] Single media course: Video paused/ended/at start, attempting to play.');
-                video.play().catch(e => {
-                    console.error("[Script] Failed to play video in single media course (catch block):", e);
-                });
-            } else {
-                // Video is playing, check progress
-                if (video.duration > 0 && (video.currentTime / video.duration) >= completionThreshold) {
-                    console.log('[Script] Single media course: Video reached completion threshold. Navigating to next step.');
-                    safeNavigateAfterCourseCompletion();
-                } else {
-                    console.log('[Script] Single media course: Video is playing, waiting for completion.');
-                }
-            }
-        } else {
-            console.log('[Script] Single media course: Video not ready (readyState < 3). Waiting for more data.');
-            // Do not attempt to play if not ready, just wait for next loop iteration
+        video.playbackRate = CONFIG.VIDEO_PLAYBACK_RATE;
+        video.muted = true;
+        if (video.paused) {
+            video.play().catch(e => {});
         }
     }
 
@@ -854,9 +767,13 @@
     function handleExamListPage() {
         if (!isServiceActive) return;
 
+        const currentHash = window.location.hash.toLowerCase();
         currentNavContext = GM_getValue('sclpa_nav_context', '');
-        if (currentNavContext !== 'exam') {
-            console.log('[Script] Not in "exam" navigation context. Skipping exam list processing.');
+
+        // If the context is 'course', we should not be automating exams. Navigate back.
+        if (currentNavContext === 'course') {
+            console.log('[Script] Current navigation context is "course". Ignoring exam automation and navigating back to course list.');
+            safeNavigateBackToList();
             return;
         }
 
@@ -865,14 +782,28 @@
         if (pendingExamTab && !isUnfinishedTabActive(pendingExamTab)) {
             console.log('[Script] Found "待考试" tab, clicking it...');
             clickElement(pendingExamTab);
+            // After clicking, wait for the content to load, then re-evaluate
             setTimeout(() => {
-                attemptClickStartExamButton();
+                handleExamListPage();
             }, 2500);
-        } else if (pendingExamTab) {
-            console.log('[Script] "待考试" tab is already active. Attempting to find "开始考试" button...');
+            return;
+        } else if (pendingExamTab && isUnfinishedTabActive(pendingExamTab)) {
+            // Check for "暂无数据" if on professional exam page
+            if (currentHash.includes('/onlineexam')) {
+                const emptyDataText = document.querySelector('.el-table__empty-text');
+                if (emptyDataText && emptyDataText.innerText.includes('暂无数据')) {
+                    console.log('[Script] Professional Exam List: Detected "暂无数据". Switching to Public Exam List.');
+                    window.location.href = 'https://zyys.ihehang.com/#/openOnlineExam';
+                    return; // Exit after navigation
+                }
+            }
+
+            // If not "暂无数据" or on public exam page, attempt to start exam
+            console.log('[Script] "待考试" tab is active. Attempting to find "开始考试" button...');
             attemptClickStartExamButton();
         } else {
             console.log('[Script] No "待考试" tab or pending exam found. All exams might be completed.');
+            // If all exams are completed, or no pending tab, the script will idle here.
         }
     }
 
@@ -899,39 +830,27 @@
 
         const examCompletionPopupMessage = document.querySelector('.el-message-box__message p');
         const goToExamBtnInPopup = findElementByText('button.el-button--primary span', '前往考试');
+        // Corrected: Use findElementByText for the cancel button as well
         const cancelBtnInPopup = findElementByText('button.el-button--default span', '取消');
 
-        // Handle the specific "恭喜您已经完成所有课程学习" popup
-        if (examCompletionPopupMessage && examCompletionPopupMessage.innerText.includes('恭喜您已经完成所有课程学习')) {
-            console.log('[Script] Detected "恭喜您已经完成所有课程学习" popup.');
-            isPopupBeingHandled = true; // Set flag to prevent re-entry
-
-            if (goToExamBtnInPopup && cancelBtnInPopup) {
-                console.log('[Script] Clicking "取消" to dismiss completion popup and return to course list.');
+        if (examCompletionPopupMessage && examCompletionPopupMessage.innerText.includes('恭喜您已经完成所有课程学习') && goToExamBtnInPopup && cancelBtnInPopup) {
+            currentNavContext = GM_getValue('sclpa_nav_context', '');
+            if (currentNavContext === 'course') {
+                console.log('[Script] Detected "前往考试" completion popup in course context. Clicking "取消" to dismiss.');
+                isPopupBeingHandled = true;
                 clickElement(cancelBtnInPopup.closest('button'));
-
-                setTimeout(() => {
-                    safeNavigateBackToList();
-                    isPopupBeingHandled = false;
-                    unfinishedTabClicked = false;
-                }, 1000);
-                return; // Handled this specific popup, exit
+                setTimeout(() => { isPopupBeingHandled = false; }, 2500);
+                return;
             }
         }
 
-        // IMPORTANT: Per user request, DO NOT click generic "确定" button.
-        // Only handle "进入下一节学习" if it's a specific button, not a generic "确定".
-        const nextChapterBtn = findElementByText('button span', '进入下一节学习');
-        if (nextChapterBtn) {
-            console.log(`[Script] Detected "进入下一节学习" button. Clicking it.`);
+        const genericBtn = findElementByText('button span', '确定') || findElementByText('button span', '进入下一节学习');
+        if (genericBtn) {
+            console.log(`[Script] Detected generic popup button: ${genericBtn.innerText.trim()}. Clicking it.`);
             isPopupBeingHandled = true;
-            clickElement(nextChapterBtn.closest('button'));
+            clickElement(genericBtn.closest('button'));
             setTimeout(() => { isPopupBeingHandled = false; }, 2500);
-            return; // Handled this specific button, exit
         }
-
-        // If no specific popup or button is handled, do nothing.
-        // console.log('[Script] No relevant popups or buttons detected to handle.'); // Commented out to reduce log spam
     }
 
 
@@ -978,7 +897,7 @@
         hook(Object, 'defineProperty', (original) => function(target, property, descriptor) {
             if (target instanceof HTMLMediaElement && property === 'playbackRate') {
                 console.log('[Script] Detected website attempting to lock video playback rate, intercepted.');
-                // Do not return here, allow the original setter to be called but we will override it frequently.
+                return;
             }
             return original.apply(this, arguments);
         });
@@ -1008,21 +927,49 @@
      */
     function safeNavigateBackToList() {
         const hash = window.location.hash.toLowerCase();
+        // Determine the return URL based on the current hash to ensure we go back to the correct list type (public or specialized)
         const returnUrl = hash.includes('public') || hash.includes('openplayer') || hash.includes('imageandtext') || hash.includes('openonlineexam')
             ? 'https://zyys.ihehang.com/#/publicDemand'
-            : 'https://zyys.ihehang.com/#/specialized';
+            : 'https://zyys.ihehang.com/#/specialized'; // Default to specialized for professional courses
+        console.log(`[Script] Navigating back to list: ${returnUrl}`);
         window.location.href = returnUrl;
     }
 
     /**
-     * Decide next action after a course (including all its chapters) is completed
+     * Decide next action after a course (including all its chapters) is completed.
+     * This function is crucial for determining whether to proceed to exam or continue course swiping.
      */
     function safeNavigateAfterCourseCompletion() {
-        console.log('[Script] Course completed. Navigating back to course list.');
-        // Always navigate back to the appropriate list.
-        // The popup (if any) will be handled by handleGenericPopups in the main loop.
+        const hash = window.location.hash.toLowerCase();
+        currentNavContext = GM_getValue('sclpa_nav_context', ''); // Ensure context is fresh
+
+        // Check if the current page is a player page (video or article player)
+        if (hash.includes('/majorplayerpage') || hash.includes('/articleplayerpage') || hash.includes('/openplayer') || hash.includes('/imageandtext')) {
+            // If the navigation context is explicitly set to 'exam' (e.g., user clicked '专业课-考试' from panel)
+            if (currentNavContext === 'exam') {
+                const goToExamButton = findElementByText('button span', '前往考试');
+                if (goToExamButton) {
+                    console.log('[Script] Course completed. Context is "exam". Found "前往考试" button, clicking it.');
+                    clickElement(goToExamButton.closest('button'));
+                    return; // Exit after clicking exam button
+                } else {
+                    console.log('[Script] Course completed. Context is "exam" but "前往考试" button not found, navigating back to exam list.');
+                    // Navigate to appropriate exam list if '前往考试' isn't found
+                    const examReturnUrl = hash.includes('openplayer') || hash.includes('imageandtext') ? 'https://zyys.ihehang.com/#/openOnlineExam' : 'https://zyys.ihehang.com/#/onlineExam';
+                    window.location.href = examReturnUrl;
+                    return;
+                }
+            } else {
+                // If context is 'course' or default/empty, always navigate back to the relevant course list
+                console.log('[Script] Course completed. Context is "course" or undefined. Navigating back to course list to continue swiping.');
+                safeNavigateBackToList();
+                return; // Exit after navigating back to list
+            }
+        }
+
+        // Fallback for other cases (e.g., if this function is called from a non-player page unexpectedly)
+        console.log('[Script] safeNavigateAfterCourseCompletion called from non-player page or unhandled scenario. Navigating back to general course list.');
         safeNavigateBackToList();
-        unfinishedTabClicked = false; // Reset for the next cycle
     }
 
 
@@ -1052,26 +999,41 @@
      * Main script loop, executed every 2 seconds
      */
     function mainLoop() {
-        if (window.location.hash !== currentPageHash) {
+        const currentHash = window.location.hash; // Get current hash at the start of the loop
+
+        // Detect hash change to reset states
+        if (currentHash !== currentPageHash) {
             const oldHash = currentPageHash;
-            currentPageHash = window.location.hash;
-            if (oldHash.includes('/examination') && !currentPageHash.includes('/examination')) {
+            currentPageHash = currentHash; // Update currentPageHash
+
+            // If exiting an examination page, clean up AI panel and related flags
+            if (oldHash.includes('/examination') && !currentHash.includes('/examination')) {
                 const aiPanel = document.getElementById('ai-helper-panel');
                 if (aiPanel) aiPanel.remove();
                 currentQuestionBatchText = ''; // Reset batch text on exam page exit
                 isAiAnswerPending = false;
                 isSubmittingExam = false;
             }
-            if (currentPageHash.includes('/specialized') || currentPageHash.includes('/publicdemand') ||
-                currentPageHash.includes('/onlineexam') || currentPageHash.includes('/openonlineexam')) {
-                unfinishedTabClicked = false;
-            }
         }
 
+        // Always reset unfinishedTabClicked if we are on a course list page or exam list page.
+        // This ensures that even if the hash doesn't change (e.g., page reload to same hash),
+        // the "未完成" tab logic is re-evaluated.
+        if (currentHash.includes('/specialized') || currentHash.includes('/publicdemand') ||
+            currentHash.includes('/onlineexam') || currentHash.includes('/openonlineexam')) {
+            if (unfinishedTabClicked) { // Only log if it's actually being reset
+                console.log('[Script] Resetting unfinishedTabClicked flag for current list page.');
+            }
+            unfinishedTabClicked = false;
+        }
+
+
+        // Handle generic popups if service is active
         if (isServiceActive) {
             handleGenericPopups();
         }
 
+        // Route to the appropriate page handler
         router();
     }
 
@@ -1079,14 +1041,15 @@
      * Start the script
      */
     window.addEventListener('load', () => {
-        console.log(`[Script] Sichuan Licensed Pharmacist Continuing Education (v1.2.4) started.`);
+        console.log(`[Script] Sichuan Licensed Pharmacist Continuing Education (v1.2.0) started.`);
         console.log(`[Script] Service status: ${isServiceActive ? 'Running' : 'Paused'} | Current mode: ${scriptMode} | Current speed: ${currentPlaybackRate}x`);
         currentPageHash = window.location.hash;
-        currentNavContext = GM_getValue('sclpa_nav_context', '');
+        currentNavContext = GM_getValue('sclpa_nav_context', ''); // Load initial navigation context
 
         initializeVideoPlaybackFixes();
         createModeSwitcherPanel();
 
+        // Start the main loop
         setInterval(mainLoop, 2000);
     });
 

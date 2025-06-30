@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         四川省执业药师继续教育
 // @namespace    http://tampermonkey.net/
-// @version      1.2.7
-// @description  【v1.2.7 |修复】优化视频观看逻辑，页面跳转逻辑
+// @version      1.2.8
+// @description  【v1.2.8 |修复】修复文本描述和删除部分冗余代码并优化功能
 // @author       Coren & Gemini
 // @match        https://www.sclpa.cn/*
 // @match        https://zyys.ihehang.com/*
@@ -14,6 +14,9 @@
 // @connect      self
 // @license MIT
 // ==/UserScript==
+
+// Script execution starts here. This log should appear first in console if script loads.
+console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Continuing Education script.`);
 
 (function() {
     'use strict';
@@ -67,6 +70,7 @@
         try {
             return Array.from(document.querySelectorAll(selector)).find(el => el.innerText.trim() === text.trim());
         } catch (e) {
+            console.error(`[Script Error] findElementByText failed for selector "${selector}" with text "${text}":`, e);
             return null;
         }
     }
@@ -79,6 +83,8 @@
         if (element && typeof element.click === 'function') {
             console.log('[Script] Clicking element:', element);
             element.click();
+        } else {
+            console.warn('[Script] Attempted to click a non-existent or unclickable element:', element);
         }
     }
 
@@ -100,7 +106,12 @@
      */
     function hook(object, methodName, hooker) {
         const original = object[methodName];
-        object[methodName] = hooker(original);
+        if (typeof original === 'function') {
+            object[methodName] = hooker(original);
+            console.log(`[Script] Successfully hooked ${methodName}`);
+        } else {
+            console.warn(`[Script] Failed to hook ${methodName}: original is not a function.`);
+        }
     }
 
 
@@ -112,143 +123,194 @@
      * Create the script control panel (mode switching, navigation, etc.)
      */
     function createModeSwitcherPanel() {
-        if (isModePanelCreated) return;
+        if (isModePanelCreated) {
+            console.log('[Script] Mode switcher panel already created, skipping.');
+            return;
+        }
         isModePanelCreated = true;
+        console.log('[Script] Attempting to create Mode Switcher Panel...');
 
-        GM_addStyle(`
-            #mode-switcher-panel { position: fixed; bottom: 20px; right: 20px; width: 220px; background-color: #fff; border: 1px solid #007bff; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.15); z-index: 10000; overflow: hidden; font-family: 'Microsoft YaHei', sans-serif; }
-            #mode-switcher-header { padding: 8px 12px; background-color: #007bff; color: white; cursor: move; user-select: none; display: flex; justify-content: space-between; align-items: center; }
-            #mode-switcher-toggle-collapse { background: none; border: none; color: white; font-size: 18px; cursor: pointer; }
-            #mode-switcher-content { padding: 15px; border-top: 1px solid #007bff; display: flex; flex-direction: column; align-items: center; gap: 10px; max-height: 500px; overflow: hidden; transition: max-height 0.3s ease-in-out, padding 0.3s ease-in-out; }
-            #mode-switcher-panel.collapsed #mode-switcher-content { max-height: 0; padding-top: 0; padding-bottom: 0; }
-            .panel-btn { padding: 8px 16px; font-size: 14px; color: white; border: none; border-radius: 5px; cursor: pointer; transition: background-color 0.3s; min-width: 120px; width: 100%; box-sizing: border-box; }
-            .service-btn-active { background-color: #28a745; }
-            .service-btn-paused { background-color: #dc3545; }
-            .nav-btn { padding: 5px 10px; font-size: 12px; color: #007bff; background-color: #fff; border: 1px solid #007bff; border-radius: 5px; cursor: pointer; transition: all 0.3s; width: 100%; }
-            .nav-btn:hover { background-color: #007bff; color: #fff; }
-            .panel-divider { width: 100%; height: 1px; background-color: #eee; margin: 5px 0; }
-            .setting-row { display: flex; flex-direction: column; width: 100%; align-items: center; }
-            .setting-row > label { margin-bottom: 5px; font-size: 14px; }
-            .speed-slider-container { display: flex; align-items: center; width: 100%; gap: 10px; }
-            #speed-slider { flex-grow: 1; }
-            #speed-display { font-weight: bold; font-size: 14px; color: #007bff; min-width: 45px; text-align: right; }
-            .api-key-input { width: calc(100% - 20px); padding: 8px; margin-top: 5px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; font-size: 13px; }
-            .api-key-action-btn { background-color: #6c757d; margin-top: 5px; }
-            .api-key-action-btn:hover { background-color: #5a6268; }
-        `);
+        try {
+            GM_addStyle(`
+                #mode-switcher-panel { position: fixed; bottom: 20px; right: 20px; width: 220px; background-color: #fff; border: 1px solid #007bff; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.15); z-index: 10000; overflow: hidden; font-family: 'Microsoft YaHei', sans-serif; }
+                #mode-switcher-header { padding: 8px 12px; background-color: #007bff; color: white; cursor: move; user-select: none; display: flex; justify-content: space-between; align-items: center; }
+                #mode-switcher-toggle-collapse { background: none; border: none; color: white; font-size: 18px; cursor: pointer; }
+                #mode-switcher-content { padding: 15px; border-top: 1px solid #007bff; display: flex; flex-direction: column; align-items: center; gap: 10px; max-height: 500px; overflow: hidden; transition: max-height 0.3s ease-in-out, padding 0.3s ease-in-out; }
+                #mode-switcher-panel.collapsed #mode-switcher-content { max-height: 0; padding-top: 0; padding-bottom: 0; }
+                .panel-btn { padding: 8px 16px; font-size: 14px; color: white; border: none; border-radius: 5px; cursor: pointer; transition: background-color 0.3s; min-width: 120px; width: 100%; box-sizing: border-box; }
+                .service-btn-active { background-color: #28a745; }
+                .service-btn-paused { background-color: #dc3545; }
+                .nav-btn { padding: 5px 10px; font-size: 12px; color: #007bff; background-color: #fff; border: 1px solid #007bff; border-radius: 5px; cursor: pointer; transition: all 0.3s; width: 100%; }
+                .nav-btn:hover { background-color: #007bff; color: #fff; }
+                .panel-divider { width: 100%; height: 1px; background-color: #eee; margin: 5px 0; }
+                .setting-row { display: flex; flex-direction: column; width: 100%; align-items: center; }
+                .setting-row > label { margin-bottom: 5px; font-size: 14px; }
+                .speed-slider-container { display: flex; align-items: center; width: 100%; gap: 10px; }
+                #speed-slider { flex-grow: 1; }
+                #speed-display { font-weight: bold; font-size: 14px; color: #007bff; min-width: 45px; text-align: right; }
+                .api-key-input { width: calc(100% - 20px); padding: 8px; margin-top: 5px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; font-size: 13px; }
+                .api-key-action-btn { background-color: #6c757d; margin-top: 5px; }
+                .api-key-action-btn:hover { background-color: #5a6268; }
+            `);
 
-        const panel = document.createElement('div');
-        panel.id = 'mode-switcher-panel';
-        panel.innerHTML = `
-            <div id="mode-switcher-header">
-                <span>控制面板</span>
-                <button id="mode-switcher-toggle-collapse">－</button>
-            </div>
-            <div id="mode-switcher-content">
-                <div class="setting-row">
-                    <label>点击开启/关闭服务:</label>
-                    <button id="service-toggle-btn" class="panel-btn"></button>
+            const panel = document.createElement('div');
+            panel.id = 'mode-switcher-panel';
+            panel.innerHTML = `
+                <div id="mode-switcher-header">
+                    <span>控制面板</span>
+                    <button id="mode-switcher-toggle-collapse">－</button>
                 </div>
-                <div class="panel-divider"></div>
-                <div class="setting-row">
-                    <label for="speed-slider">倍速设置:</label>
-                    <div class="speed-slider-container">
-                         <input type="range" id="speed-slider" min="1" max="16" step="0.5" value="${currentPlaybackRate}">
-                         <span id="speed-display">x${currentPlaybackRate}</span>
+                <div id="mode-switcher-content">
+                    <div class="setting-row">
+                        <label>点击开启/关闭服务:</label>
+                        <button id="service-toggle-btn" class="panel-btn"></button>
+                    </div>
+                    <div class="panel-divider"></div>
+                    <div class="setting-row">
+                        <label for="speed-slider">倍速设置:</label>
+                        <div class="speed-slider-container">
+                             <input type="range" id="speed-slider" min="1" max="16" step="0.5" value="${currentPlaybackRate}">
+                             <span id="speed-display">x${currentPlaybackRate}</span>
+                        </div>
+                    </div>
+                    <div class="panel-divider"></div>
+                    <div class="setting-row">
+                        <label>AI API Key 设置:</label>
+                        <button id="api-key-setting-btn" class="panel-btn api-key-action-btn">设置 API Key</button>
+                    </div>
+                    <div class="panel-divider"></div>
+                    <div class="setting-row">
+                         <label>快速导航:</label>
+                        <div style="display: flex; flex-direction: column; gap: 5px; width: 100%;">
+                            <button id="nav-specialized-btn" class="nav-btn">专业课程</button>
+                            <button id="nav-public-video-btn" class="nav-btn">公需课-视频</button>
+                            <button id="nav-public-article-btn" class="nav-btn">公需课-文章</button>
+                            <button id="nav-specialized-exam-btn" class="nav-btn">专业课-考试</button>
+                            <button id="nav-public-exam-btn" class="nav-btn">公需课-考试</button>
+                        </div>
                     </div>
                 </div>
-                <div class="panel-divider"></div>
-                <div class="setting-row">
-                    <label>AI API Key 设置:</label>
-                    <button id="api-key-setting-btn" class="panel-btn api-key-action-btn">设置 API Key</button>
-                </div>
-                <div class="panel-divider"></div>
-                <div class="setting-row">
-                     <label>快速导航:</label>
-                    <div style="display: flex; flex-direction: column; gap: 5px; width: 100%;">
-                        <button id="nav-specialized-btn" class="nav-btn">专业课程</button>
-                        <button id="nav-public-video-btn" class="nav-btn">公需课-视频</button>
-                        <button id="nav-public-article-btn" class="nav-btn">公需课-文章</button>
-                        <button id="nav-specialized-exam-btn" class="nav-btn">专业课-考试</button>
-                        <button id="nav-public-exam-btn" class="nav-btn">公需课-考试</button>
-                    </div>
-                </div>
-            </div>
-        `;
-        document.body.appendChild(panel);
-
-        const serviceBtn = document.getElementById('service-toggle-btn');
-        const collapseBtn = document.getElementById('mode-switcher-toggle-collapse');
-        const navSpecializedBtn = document.getElementById('nav-specialized-btn');
-        const navPublicVideoBtn = document.getElementById('nav-public-video-btn');
-        const navPublicArticleBtn = document.getElementById('nav-public-article-btn');
-        const navSpecializedExamBtn = document.getElementById('nav-specialized-exam-btn');
-        const navPublicExamBtn = document.getElementById('nav-public-exam-btn');
-
-        const speedSlider = document.getElementById('speed-slider');
-        const speedDisplay = document.getElementById('speed-display');
-        const apiKeySettingBtn = document.getElementById('api-key-setting-btn');
-
-        const updateServiceButton = (isActive) => {
-            serviceBtn.innerText = isActive ? '服务运行中' : '服务已暂停';
-            serviceBtn.className = 'panel-btn ' + (isActive ? 'service-btn-active' : 'service-btn-paused');
-        };
-        updateServiceButton(isServiceActive);
-
-        serviceBtn.onclick = () => {
-            isServiceActive = !isServiceActive;
-            GM_setValue('sclpa_service_active', isServiceActive);
-            window.location.reload();
-        };
-        speedSlider.addEventListener('input', () => {
-            speedDisplay.textContent = `x${speedSlider.value}`;
-        });
-        speedSlider.addEventListener('change', () => {
-            const newRate = parseFloat(speedSlider.value);
-            GM_setValue('sclpa_playback_rate', newRate);
-            console.log(`[Script] Playback speed set to: ${newRate}x. Refreshing page to apply...`);
-            window.location.reload();
-        });
-        collapseBtn.onclick = () => {
-            panel.classList.toggle('collapsed');
-            collapseBtn.innerText = panel.classList.contains('collapsed') ? '＋' : '－';
-        };
-
-        navSpecializedBtn.onclick = () => {
-            GM_setValue('sclpa_nav_context', 'course');
-            window.location.href = 'https://zyys.ihehang.com/#/specialized';
-        };
-        navPublicVideoBtn.onclick = () => {
-            GM_setValue('sclpa_public_target', 'video');
-            GM_setValue('sclpa_nav_context', 'course');
-            window.location.href = 'https://zyys.ihehang.com/#/publicDemand';
-        };
-        navPublicArticleBtn.onclick = () => {
-            GM_setValue('sclpa_public_target', 'article');
-            GM_setValue('sclpa_nav_context', 'course');
-            window.location.href = 'https://zyys.ihehang.com/#/publicDemand';
-        };
-
-        navSpecializedExamBtn.onclick = () => {
-            GM_setValue('sclpa_nav_context', 'exam');
-            window.location.href = 'https://zyys.ihehang.com/#/onlineExam';
-        };
-        navPublicExamBtn.onclick = () => {
-            GM_setValue('sclpa_nav_context', 'exam');
-            window.location.href = 'https://zyys.ihehang.com/#/openOnlineExam';
-        };
-
-        apiKeySettingBtn.onclick = () => {
-            const currentKey = GM_getValue('sclpa_deepseek_api_key', '');
-            const newKey = prompt('请输入您的 DeepSeek AI API Key:', currentKey);
-            if (newKey !== null) {
-                GM_setValue('sclpa_deepseek_api_key', newKey.trim());
-                CONFIG.AI_API_SETTINGS.API_KEY = newKey.trim();
-                alert('API Key 已保存！下次页面加载时生效。');
+            `;
+            // Append to body. If body is not ready, this might fail.
+            if (document.body) {
+                document.body.appendChild(panel);
+                console.log('[Script] Mode Switcher Panel appended to body.');
+            } else {
+                console.error('[Script Error] document.body is not available when trying to append Mode Switcher Panel.');
+                isModePanelCreated = false; // Reset flag if append failed
+                return;
             }
-        };
 
-        makeDraggable(panel, document.getElementById('mode-switcher-header'));
+            // Ensure elements are retrieved AFTER they are appended to the DOM
+            const serviceBtn = document.getElementById('service-toggle-btn');
+            const collapseBtn = document.getElementById('mode-switcher-toggle-collapse');
+            const navSpecializedBtn = document.getElementById('nav-specialized-btn');
+            const navPublicVideoBtn = document.getElementById('nav-public-video-btn');
+            const navPublicArticleBtn = document.getElementById('nav-public-article-btn');
+            const navSpecializedExamBtn = document.getElementById('nav-specialized-exam-btn');
+            const navPublicExamBtn = document.getElementById('nav-public-exam-btn');
+
+            const speedSlider = document.getElementById('speed-slider');
+            const speedDisplay = document.getElementById('speed-display');
+            const apiKeySettingBtn = document.getElementById('api-key-setting-btn');
+
+            const updateServiceButton = (isActive) => {
+                if (serviceBtn) { // Add null check
+                    serviceBtn.innerText = isActive ? '服务运行中' : '服务已暂停';
+                    serviceBtn.className = 'panel-btn ' + (isActive ? 'service-btn-active' : 'service-btn-paused');
+                }
+            };
+            updateServiceButton(isServiceActive);
+
+            if (serviceBtn) {
+                serviceBtn.onclick = () => {
+                    isServiceActive = !isServiceActive;
+                    GM_setValue('sclpa_service_active', isServiceActive);
+                    window.location.reload();
+                };
+            } else { console.warn('[Script] serviceToggleBtn not found.'); }
+
+            if (speedSlider) {
+                speedSlider.addEventListener('input', () => {
+                    if (speedDisplay) speedDisplay.textContent = `x${speedSlider.value}`;
+                });
+                speedSlider.addEventListener('change', () => {
+                    const newRate = parseFloat(speedSlider.value);
+                    GM_setValue('sclpa_playback_rate', newRate);
+                    console.log(`[Script] Playback speed set to: ${newRate}x. Refreshing page to apply...`);
+                    window.location.reload();
+                });
+            } else { console.warn('[Script] speedSlider not found.'); }
+
+            if (collapseBtn) {
+                collapseBtn.onclick = () => {
+                    if (panel) panel.classList.toggle('collapsed');
+                    if (collapseBtn && panel) collapseBtn.innerText = panel.classList.contains('collapsed') ? '＋' : '－';
+                };
+            } else { console.warn('[Script] collapseBtn not found.'); }
+
+
+            if (navSpecializedBtn) {
+                navSpecializedBtn.onclick = () => {
+                    GM_setValue('sclpa_nav_context', 'course');
+                    window.location.href = 'https://zyys.ihehang.com/#/specialized';
+                };
+            } else { console.warn('[Script] navSpecializedBtn not found.'); }
+
+            if (navPublicVideoBtn) {
+                navPublicVideoBtn.onclick = () => {
+                    GM_setValue('sclpa_public_target', 'video');
+                    GM_setValue('sclpa_nav_context', 'course');
+                    window.location.href = 'https://zyys.ihehang.com/#/publicDemand';
+                };
+            } else { console.warn('[Script] navPublicVideoBtn not found.'); }
+
+            if (navPublicArticleBtn) {
+                navPublicArticleBtn.onclick = () => {
+                    GM_setValue('sclpa_public_target', 'article');
+                    GM_setValue('sclpa_nav_context', 'course');
+                    window.location.href = 'https://zyys.ihehang.com/#/publicDemand';
+                };
+            } else { console.warn('[Script] navPublicArticleBtn not found.'); }
+
+            if (navSpecializedExamBtn) {
+                navSpecializedExamBtn.onclick = () => {
+                    GM_setValue('sclpa_nav_context', 'exam');
+                    window.location.href = 'https://zyys.ihehang.com/#/onlineExam';
+                };
+            } else { console.warn('[Script] navSpecializedExamBtn not found.'); }
+
+            if (navPublicExamBtn) {
+                navPublicExamBtn.onclick = () => {
+                    GM_setValue('sclpa_nav_context', 'exam');
+                    window.location.href = 'https://zyys.ihehang.com/#/openOnlineExam';
+                };
+            } else { console.warn('[Script] navPublicExamBtn not found.'); }
+
+            if (apiKeySettingBtn) {
+                apiKeySettingBtn.onclick = () => {
+                    const currentKey = GM_getValue('sclpa_deepseek_api_key', '');
+                    const newKey = prompt('请输入您的 DeepSeek AI API Key:', currentKey);
+                    if (newKey !== null) {
+                        GM_setValue('sclpa_deepseek_api_key', newKey.trim());
+                        CONFIG.AI_API_SETTINGS.API_KEY = newKey.trim();
+                        alert('API Key 已保存！下次页面加载时生效。');
+                    }
+                };
+            } else { console.warn('[Script] apiKeySettingBtn not found.'); }
+
+
+            if (panel && document.getElementById('mode-switcher-header')) { // Ensure header exists before making draggable
+                 makeDraggable(panel, document.getElementById('mode-switcher-header'));
+            } else {
+                console.warn('[Script] Could not make panel draggable: panel or header not found after creation.');
+            }
+            console.log('[Script] Mode Switcher Panel creation attempted and event listeners attached.');
+
+        } catch (e) {
+            console.error('[Script Error] Error creating Mode Switcher Panel:', e);
+            isModePanelCreated = false;
+        }
     }
 
     /**
@@ -258,67 +320,94 @@
         const existingPanel = document.getElementById('ai-helper-panel');
         if (existingPanel) {
             existingPanel.remove();
+            console.log('[Script] Removed existing AI helper panel.');
         }
+        console.log('[Script] Attempting to create AI Helper Panel...');
 
-        GM_addStyle(`
-            #ai-helper-panel { position: fixed; bottom: 20px; right: 20px; width: 350px; max-width: 90vw; background-color: #f0f8ff; border: 1px solid #b0c4de; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.2); z-index: 99999; font-family: 'Microsoft YaHei', sans-serif; display: flex; flex-direction: column; }
-            #ai-helper-header { padding: 10px; background-color: #4682b4; color: white; font-weight: bold; cursor: move; border-top-left-radius: 9px; border-top-right-radius: 9px; user-select: none; display: flex; justify-content: space-between; align-items: center; }
-            #ai-helper-close-btn { background: none; border: none; color: white; font-size: 20px; cursor: pointer; }
-            #ai-helper-content { padding: 15px; display: flex; flex-direction: column; gap: 10px; }
-            #ai-helper-textarea { width: 100%; box-sizing: border-box; height: 100px; padding: 8px; border: 1px solid #ccc; border-radius: 5px; resize: vertical; }
-            #ai-helper-submit-btn { padding: 10px 15px; background-color: #5cb85c; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; }
-            #ai-helper-result { margin-top: 10px; padding: 10px; background-color: #ffffff; border: 1px solid #eee; border-radius: 5px; min-height: 50px; max-height: 200px; overflow-y: auto; white-space: pre-wrap; word-wrap: break-word; }
-            #ai-key-warning { color: #dc3545; font-size: 12px; margin-top: 5px; display: none; }
-        `);
-        const panel = document.createElement('div');
-        panel.id = 'ai-helper-panel';
-        panel.innerHTML = `
-            <div id="ai-helper-header"><span>AI 问答助手</span><button id="ai-helper-close-btn">&times;</button></div>
-            <div id="ai-helper-content">
-                <label for="ai-helper-textarea">在此输入您的问题：</label>
-                <textarea id="ai-helper-textarea" placeholder="案例：复制所有问题以及选项并询问AI，AI将直接回复答案选项..."></textarea>
-                <div id="ai-key-warning">请先在控制面板中设置您的 DeepSeek API Key！</div>
-                <button id="ai-helper-submit-btn">向AI提问</button>
-                <label for="ai-helper-result">AI 回答：</label>
-                <div id="ai-helper-result">请先提问...</div>
-            </div>
-        `;
-        document.body.appendChild(panel);
-        const submitBtn = document.getElementById('ai-helper-submit-btn');
-        const closeBtn = document.getElementById('ai-helper-close-btn');
-        const textarea = document.getElementById('ai-helper-textarea');
-        const resultDiv = document.getElementById('ai-helper-result');
-        const keyWarning = document.getElementById('ai-key-warning');
-
-        // Check if API Key is set
-        if (!CONFIG.AI_API_SETTINGS.API_KEY || CONFIG.AI_API_SETTINGS.API_KEY === '请在此处填入您自己的 DeepSeek API Key') {
-            keyWarning.style.display = 'block';
-            submitBtn.disabled = true;
-            submitBtn.innerText = '请先设置 API Key';
-        }
-
-        closeBtn.onclick = () => panel.remove();
-        submitBtn.onclick = async () => {
-            const question = textarea.value.trim();
-            if (!question) { resultDiv.innerText = '错误：问题不能为空！'; return; }
-            if (!CONFIG.AI_API_SETTINGS.API_KEY || CONFIG.AI_API_SETTINGS.API_KEY === '请在此处填入您自己的 DeepSeek API Key') {
-                resultDiv.innerText = '错误：请先设置您的 DeepSeek API Key！';
+        try {
+            GM_addStyle(`
+                #ai-helper-panel { position: fixed; bottom: 20px; right: 20px; width: 350px; max-width: 90vw; background-color: #f0f8ff; border: 1px solid #b0c4de; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.2); z-index: 99999; font-family: 'Microsoft YaHei', sans-serif; display: flex; flex-direction: column; }
+                #ai-helper-header { padding: 10px; background-color: #4682b4; color: white; font-weight: bold; cursor: move; border-top-left-radius: 9px; border-top-right-radius: 9px; user-select: none; display: flex; justify-content: space-between; align-items: center; }
+                #ai-helper-close-btn { background: none; border: none; color: white; font-size: 20px; cursor: pointer; }
+                #ai-helper-content { padding: 15px; display: flex; flex-direction: column; gap: 10px; }
+                #ai-helper-textarea { width: 100%; box-sizing: border-box; height: 100px; padding: 8px; border: 1px solid #ccc; border-radius: 5px; resize: vertical; }
+                #ai-helper-submit-btn { padding: 10px 15px; background-color: #5cb85c; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; }
+                #ai-helper-result { margin-top: 10px; padding: 10px; background-color: #ffffff; border: 1px solid #eee; border-radius: 5px; min-height: 50px; max-height: 200px; overflow-y: auto; white-space: pre-wrap; word-wrap: break-word; }
+                #ai-key-warning { color: #dc3545; font-size: 12px; margin-top: 5px; display: none; }
+            `);
+            const panel = document.createElement('div');
+            panel.id = 'ai-helper-panel';
+            panel.innerHTML = `
+                <div id="ai-helper-header"><span>AI 问答助手</span><button id="ai-helper-close-btn">&times;</button></div>
+                <div id="ai-helper-content">
+                    <label for="ai-helper-textarea">在此输入您的问题：</label>
+                    <textarea id="ai-helper-textarea" placeholder="案例：复制所有问题以及选项并询问AI，AI将直接回复答案选项..."></textarea>
+                    <div id="ai-key-warning">请先在控制面板中设置您的 DeepSeek API Key！</div>
+                    <button id="ai-helper-submit-btn">向AI提问</button>
+                    <label for="ai-helper-result">AI 回答：</label>
+                    <div id="ai-helper-result">请先提问...</div>
+                </div>
+            `;
+            if (document.body) {
+                document.body.appendChild(panel);
+                console.log('[Script] AI Helper Panel appended to body.');
+            } else {
+                console.error('[Script Error] document.body is not available when trying to append AI Helper Panel.');
                 return;
             }
+            
+            // Ensure elements are retrieved AFTER they are appended to the DOM
+            const submitBtn = document.getElementById('ai-helper-submit-btn');
+            const closeBtn = document.getElementById('ai-helper-close-btn');
+            const textarea = document.getElementById('ai-helper-textarea');
+            const resultDiv = document.getElementById('ai-helper-result');
+            const keyWarning = document.getElementById('ai-key-warning');
 
-            submitBtn.disabled = true;
-            submitBtn.innerText = 'AI思考中...';
-            resultDiv.innerText = '正在向AI发送请求...';
-            try {
-                resultDiv.innerText = await askAiForAnswer(question);
-            } catch (error) {
-                resultDiv.innerText = `请求失败：${error}`;
-            } finally {
-                submitBtn.disabled = false;
-                submitBtn.innerText = '向AI提问';
+            // Check if API Key is set
+            if (keyWarning && submitBtn) { // Add null checks
+                if (!CONFIG.AI_API_SETTINGS.API_KEY || CONFIG.AI_API_SETTINGS.API_KEY === '请在此处填入您自己的 DeepSeek API Key') {
+                    keyWarning.style.display = 'block';
+                    submitBtn.disabled = true;
+                    submitBtn.innerText = '请先设置 API Key';
+                }
+            } else { console.warn('[Script] AI helper keyWarning or submitBtn not found after creation.'); }
+
+            if (closeBtn) closeBtn.onclick = () => { if (panel) panel.remove(); };
+            if (submitBtn && textarea && resultDiv) { // Add null checks
+                submitBtn.onclick = async () => {
+                    const question = textarea.value.trim();
+                    if (!question) { resultDiv.innerText = '错误：问题不能为空！'; return; }
+                    if (!CONFIG.AI_API_SETTINGS.API_KEY || CONFIG.AI_API_SETTINGS.API_KEY === '请在此处填入您自己的 DeepSeek API Key') {
+                        resultDiv.innerText = '错误：请先设置您的 DeepSeek API Key！';
+                        return;
+                    }
+
+                    submitBtn.disabled = true;
+                    submitBtn.innerText = 'AI思考中...';
+                    resultDiv.innerText = '正在向AI发送请求...';
+                    try {
+                        resultDiv.innerText = await askAiForAnswer(question);
+                    } catch (error) {
+                        resultDiv.innerText = `请求失败：${error}`;
+                    } finally {
+                        submitBtn.disabled = false;
+                        submitBtn.innerText = '向AI提问';
+                    }
+                };
+            } else {
+                console.warn('[Script] AI helper buttons or text areas not found after creation.');
             }
-        };
-        makeDraggable(panel, document.getElementById('ai-helper-header'));
+
+            if (panel && document.getElementById('ai-helper-header')) { // Ensure header exists before making draggable
+                makeDraggable(panel, document.getElementById('ai-helper-header'));
+            } else {
+                console.warn('[Script] Could not make AI helper panel draggable: panel or header not found after creation.');
+            }
+            console.log('[Script] AI Helper Panel creation attempted and event listeners attached.');
+
+        } catch (e) {
+            console.error('[Script Error] Error creating AI Helper Panel:', e);
+        }
     }
 
     /**
@@ -409,6 +498,7 @@
      */
     function handleCourseListPage(courseType) {
         if (!isServiceActive) return;
+        console.log(`[Script] handleCourseListPage called for ${courseType}.`);
 
         // Handle public course tab switching first
         if (courseType === '公需课') {
@@ -426,12 +516,14 @@
 
         const unfinishedTab = findElementByText('div.radio-tab-tag', '未完成');
 
-        // Step 1: Click "未完成" tab if not already active and not yet clicked in this session
-        // The `unfinishedTabClicked` flag prevents rapid re-clicks within the same mainLoop cycle
-        if (unfinishedTab && !isUnfinishedTabActive(unfinishedTab) && !unfinishedTabClicked) {
+        // Step 1: Click "未完成" tab if not already active
+        // Removed `!unfinishedTabClicked` to ensure it keeps trying to click until active
+        if (unfinishedTab && !isUnfinishedTabActive(unfinishedTab)) {
             console.log('[Script] Course List: Found "未完成" tab and it is not active, clicking it...');
             clickElement(unfinishedTab);
-            unfinishedTabClicked = true; // Mark as clicked for this session
+            // Set unfinishedTabClicked to true only after a successful click attempt
+            // This flag is reset by mainLoop when hash changes to a list page.
+            unfinishedTabClicked = true;
             // After clicking, wait for the page to filter/load the unfinished list
             setTimeout(() => {
                 console.log('[Script] Course List: Waiting after clicking "未完成" tab, then re-evaluating...');
@@ -475,6 +567,7 @@
      */
     function handleLearningPage() {
         if (!isServiceActive) return;
+        console.log('[Script] handleLearningPage called.');
         if (!isTimeAccelerated) {
             accelerateTime();
             isTimeAccelerated = true;
@@ -500,6 +593,7 @@
      */
     function handleMultiChapterCourse(directoryItems) {
         if (isChangingChapter) return;
+        console.log('[Script] handleMultiChapterCourse called.');
         const video = document.querySelector('video');
         if (video && !video.paused) {
             video.playbackRate = CONFIG.VIDEO_PLAYBACK_RATE;
@@ -518,7 +612,8 @@
         if (nextChapter) {
             const isAlreadySelected = nextChapter.classList.contains('catalogue-item-ed');
             if (isAlreadySelected && video && video.paused) {
-                video.play().catch(e => {});
+                console.log('[Script] Current chapter already selected and video paused, attempting to play.');
+                video.play().catch(e => { console.error('[Script Error] Failed to play video:', e); });
             } else if (!isAlreadySelected) {
                 console.log('[Script] Moving to next chapter:', nextChapter.innerText.trim());
                 clickElement(nextChapter);
@@ -536,6 +631,7 @@
      * @param {HTMLVideoElement} video
      */
     function handleSingleMediaCourse(video) {
+        console.log('[Script] handleSingleMediaCourse called.');
         if (!video.dataset.singleVidControlled) {
             video.addEventListener('ended', safeNavigateAfterCourseCompletion);
             video.dataset.singleVidControlled = 'true';
@@ -544,7 +640,8 @@
         video.playbackRate = CONFIG.VIDEO_PLAYBACK_RATE;
         video.muted = true;
         if (video.paused) {
-            video.play().catch(e => {});
+            console.log('[Script] Single media video paused, attempting to play.');
+            video.play().catch(e => { console.error('[Script Error] Failed to play single media video:', e); });
         }
     }
 
@@ -552,11 +649,13 @@
      * Handle article reading page
      */
     function handleArticleReadingPage() {
-        console.log('[Script] Detected article page, monitoring progress...');
+        console.log('[Script] handleArticleReadingPage called.');
         const progressLabel = document.querySelector('.action-btn .label');
         if (progressLabel && (progressLabel.innerText.includes('100') || progressLabel.innerText.includes('待考试'))) {
             console.log('[Script] Article study completed, preparing to return to list.');
             safeNavigateAfterCourseCompletion();
+        } else {
+            console.log('[Script] Article progress not yet 100% or "待考试".');
         }
     }
 
@@ -566,6 +665,7 @@
      */
     function handleExamPage() {
         if (!isServiceActive) return; // Only run if service is active
+        console.log('[Script] handleExamPage called.');
 
         currentNavContext = GM_getValue('sclpa_nav_context', ''); // Ensure context is fresh
         if (currentNavContext === 'course') {
@@ -600,7 +700,7 @@
         const aiHelperResultDiv = document.getElementById('ai-helper-result');
 
         if (examinationItems.length === 0 || !aiHelperTextarea || !aiHelperSubmitBtn || !aiHelperResultDiv) {
-            console.log('[Script] No examination items found or AI helper elements missing.');
+            console.log('[Script] No examination items found or AI helper elements missing. Cannot trigger AI.');
             return;
         }
 
@@ -721,6 +821,7 @@
             console.log('[Script] Service inactive or exam submission in progress, deferring next step.');
             return;
         }
+        console.log('[Script] handleNextQuestionOrSubmitExam called.');
 
         // First, try to find the "下一题" button
         const nextQuestionButton = findElementByText('button span', '下一题');
@@ -766,6 +867,7 @@
      */
     function handleExamListPage() {
         if (!isServiceActive) return;
+        console.log('[Script] handleExamListPage called.');
 
         const currentHash = window.location.hash.toLowerCase();
         currentNavContext = GM_getValue('sclpa_nav_context', '');
@@ -827,19 +929,38 @@
      */
     function handleGenericPopups() {
         if (!isServiceActive || isPopupBeingHandled) return;
+        console.log('[Script] handleGenericPopups called.');
 
+        const currentHash = window.location.hash.toLowerCase(); // Get current hash here
         const examCompletionPopupMessage = document.querySelector('.el-message-box__message p');
         const goToExamBtnInPopup = findElementByText('button.el-button--primary span', '前往考试');
         const cancelBtnInPopup = findElementByText('button.el-button--default span', '取消');
 
         if (examCompletionPopupMessage && examCompletionPopupMessage.innerText.includes('恭喜您已经完成所有课程学习') && goToExamBtnInPopup && cancelBtnInPopup) {
             currentNavContext = GM_getValue('sclpa_nav_context', '');
+            // Only handle this popup for course completion context
             if (currentNavContext === 'course') {
-                console.log('[Script] Detected "前往考试" completion popup in course context. Clicking "取消" to dismiss.');
-                isPopupBeingHandled = true;
-                clickElement(cancelBtnInPopup.closest('button'));
-                setTimeout(() => { isPopupBeingHandled = false; }, 2500);
-                return;
+                // Check if it's the professional course player page
+                if (currentHash.includes('/majorplayerpage')) {
+                    console.log('[Script] Detected "恭喜您" completion popup on majorPlayerPage. Clicking "取消" and scheduling direct navigation.');
+                    isPopupBeingHandled = true;
+                    // Click "取消" to dismiss the popup
+                    clickElement(cancelBtnInPopup.closest('button'));
+                    // Schedule direct navigation to specialized list page AFTER a short delay
+                    setTimeout(() => {
+                        console.log('[Script] Popup dismissed. Initiating direct navigation to specialized course list.');
+                        window.location.href = 'https://zyys.ihehang.com/#/specialized'; // Direct navigation
+                        // isPopupBeingHandled will be reset on page load
+                    }, 1000); // Reduced delay to 1 second for quicker navigation
+                    return; // Crucial: Prevent other generic popups from being handled in this cycle
+                } else {
+                    // For public course completion popups, still click cancel and let router handle navigation
+                    console.log('[Script] Detected "恭喜您" completion popup on non-majorPlayerPage. Clicking "取消".');
+                    isPopupBeingHandled = true;
+                    clickElement(cancelBtnInPopup.closest('button'));
+                    setTimeout(() => { isPopupBeingHandled = false; }, 1000); // Reset flag after delay
+                    return;
+                }
             }
         }
 
@@ -848,7 +969,7 @@
             console.log(`[Script] Detected generic popup button: ${genericBtn.innerText.trim()}. Clicking it.`);
             isPopupBeingHandled = true;
             clickElement(genericBtn.closest('button'));
-            setTimeout(() => { isPopupActive = false; }, 2500); // Corrected: Use isPopupBeingHandled
+            setTimeout(() => { isPopupBeingHandled = false; }, 2500);
         }
     }
 
@@ -866,24 +987,28 @@
 
         const rate = CONFIG.TIME_ACCELERATION_RATE;
 
-        hook(window, 'setTimeout', (original) => (cb, delay, ...args) => original.call(window, cb, delay / rate, ...args));
-        hook(window, 'setInterval', (original) => (cb, delay, ...args) => original.call(window, cb, delay / rate, ...args));
+        try {
+            hook(window, 'setTimeout', (original) => (cb, delay, ...args) => original.call(window, cb, delay / rate, ...args));
+            hook(window, 'setInterval', (original) => (cb, delay, ...args) => original.call(window, cb, delay / rate, ...args));
 
-        hook(window, 'requestAnimationFrame', (original) => {
-            let firstTimestamp = -1;
-            return (callback) => {
-                return original.call(window, (timestamp) => {
-                    if (firstTimestamp < 0) firstTimestamp = timestamp;
-                    const acceleratedTimestamp = firstTimestamp + (timestamp - firstTimestamp) * rate;
-                    callback(acceleratedTimestamp);
-                });
-            };
-        });
+            hook(window, 'requestAnimationFrame', (original) => {
+                let firstTimestamp = -1;
+                return (callback) => {
+                    return original.call(window, (timestamp) => {
+                        if (firstTimestamp < 0) firstTimestamp = timestamp;
+                        const acceleratedTimestamp = firstTimestamp + (timestamp - firstTimestamp) * rate;
+                        callback(acceleratedTimestamp);
+                    });
+                };
+            });
 
-        hook(Date, 'now', (original) => {
-            const scriptStartTime = original();
-            return () => scriptStartTime + (original() - scriptStartTime) * rate;
-        });
+            hook(Date, 'now', (original) => {
+                const scriptStartTime = original();
+                return () => scriptStartTime + (original() - scriptStartTime) * rate;
+            });
+        } catch (e) {
+            console.error('[Script Error] Failed to apply time acceleration hooks:', e);
+        }
     }
 
     /**
@@ -892,17 +1017,17 @@
     function initializeVideoPlaybackFixes() {
         console.log('[Script] Initializing video playback fixes (rate anti-rollback and background playback).');
 
-        // 1. Prevent webpage from resetting video playback rate
-        hook(Object, 'defineProperty', (original) => function(target, property, descriptor) {
-            if (target instanceof HTMLMediaElement && property === 'playbackRate') {
-                console.log('[Script] Detected website attempting to lock video playback rate, intercepted.');
-                return;
-            }
-            return original.apply(this, arguments);
-        });
-
-        // 2. Prevent video pausing when tab is in background by faking visibility state
         try {
+            // 1. Prevent webpage from resetting video playback rate
+            hook(Object, 'defineProperty', (original) => function(target, property, descriptor) {
+                if (target instanceof HTMLMediaElement && property === 'playbackRate') {
+                    console.log('[Script] Detected website attempting to lock video playback rate, intercepted.');
+                    return; // Prevent original defineProperty call for playbackRate
+                }
+                return original.apply(this, arguments);
+            });
+
+            // 2. Prevent video pausing when tab is in background by faking visibility state
             Object.defineProperty(document, "hidden", {
                 get: function() {
                     return false;
@@ -915,8 +1040,9 @@
                 },
                 configurable: true
             });
+            console.log('[Script] Document visibility state faked successfully.');
         } catch (e) {
-            console.warn('[Script] Failed to hook document visibility properties, background video playback might not work:', e);
+            console.error('[Script Error] Failed to initialize video playback fixes:', e);
         }
     }
 
@@ -941,6 +1067,7 @@
     function safeNavigateAfterCourseCompletion() {
         const hash = window.location.hash.toLowerCase();
         currentNavContext = GM_getValue('sclpa_nav_context', ''); // Ensure context is fresh
+        console.log('[Script] safeNavigateAfterCourseCompletion called. Current hash:', hash, 'Context:', currentNavContext);
 
         // Check if the current page is a player page (video or article player)
         if (hash.includes('/majorplayerpage') || hash.includes('/articleplayerpage') || hash.includes('/openplayer') || hash.includes('/imageandtext')) {
@@ -960,17 +1087,10 @@
                 }
             } else {
                 // If context is 'course' or default/empty, always navigate back to the relevant course list
-                // NEW: Only click '专业课程' button if on majorPlayerPage
+                // For majorPlayerPage, the navigation is now handled by handleGenericPopups after the "恭喜您" popup.
                 if (hash.includes('/majorplayerpage')) {
-                    console.log('[Script] Professional Course completed. Attempting to click "专业课程" button...');
-                    const navSpecializedBtn = document.getElementById('nav-specialized-btn');
-                    if (navSpecializedBtn) {
-                        clickElement(navSpecializedBtn);
-                        console.log('[Script] Successfully clicked "专业课程" button.');
-                    } else {
-                        console.log('[Script] "专业课程" button not found in UI panel. Falling back to direct navigation.');
-                        safeNavigateBackToList(); // Fallback to direct navigation if button not found
-                    }
+                    console.log('[Script] Professional Course completed on majorPlayerPage. Awaiting popup handling for direct navigation.');
+                    // Do NOT trigger navigation here. Let handleGenericPopups do it after popup dismissal.
                 } else {
                     // For public courses (or other non-majorPlayerPage players), use general navigation
                     console.log('[Script] Public Course completed. Navigating back to general course list.');
@@ -995,6 +1115,7 @@
      */
     function router() {
         const hash = window.location.hash.toLowerCase();
+        console.log('[Script] Router: Current hash is', hash);
         if (hash.includes('/specialized')) {
             handleCourseListPage('专业课');
         } else if (hash.includes('/publicdemand')) {
@@ -1005,6 +1126,8 @@
              handleLearningPage();
         } else if (hash.includes('/onlineexam') || hash.includes('/openonlineexam')) {
             handleExamListPage();
+        } else {
+            console.log('[Script] Router: No specific handler for current hash, idling.');
         }
     }
 
@@ -1012,12 +1135,14 @@
      * Main script loop, executed every 2 seconds
      */
     function mainLoop() {
+        console.log('[Script] Main loop running...');
         const currentHash = window.location.hash; // Get current hash at the start of the loop
 
         // Detect hash change to reset states
         if (currentHash !== currentPageHash) {
             const oldHash = currentPageHash;
             currentPageHash = currentHash; // Update currentPageHash
+            console.log(`[Script] Hash changed from ${oldHash} to ${currentHash}.`);
 
             // If exiting an examination page, clean up AI panel and related flags
             if (oldHash.includes('/examination') && !currentHash.includes('/examination')) {
@@ -1026,6 +1151,7 @@
                 currentQuestionBatchText = ''; // Reset batch text on exam page exit
                 isAiAnswerPending = false;
                 isSubmittingExam = false;
+                console.log('[Script] Exited examination page, reset AI related flags.');
             }
         }
 
@@ -1059,11 +1185,21 @@
         currentPageHash = window.location.hash;
         currentNavContext = GM_getValue('sclpa_nav_context', ''); // Load initial navigation context
 
-        initializeVideoPlaybackFixes();
-        createModeSwitcherPanel();
+        try {
+            initializeVideoPlaybackFixes();
+        } catch (e) {
+            console.error('[Script Error] Failed to initialize video playback fixes during load:', e);
+        }
 
+        try {
+            createModeSwitcherPanel(); // This creates the UI panel
+        } catch (e) {
+            console.error('[Script Error] Failed to create Mode Switcher Panel during load:', e);
+        }
+        
         // Start the main loop
         setInterval(mainLoop, 2000);
+        console.log('[Script] Main loop initiated.');
     });
 
 })();

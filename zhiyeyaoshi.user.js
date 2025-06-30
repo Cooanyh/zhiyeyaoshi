@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         四川省执业药师继续教育
 // @namespace    http://tampermonkey.net/
-// @version      1.2.4 // Version increment for this fix
+// @version      1.2.4
 // @description  【v1.2.4 |修复】解决专业课循环点击、倍速失效及公需课跳转问题
 // @author       Coren & Gemini
 // @match        https://www.sclpa.cn/*

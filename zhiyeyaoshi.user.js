@@ -2,7 +2,7 @@
 // @name         四川省执业药师继续教育 (v1.2.5)
 // @namespace    http://tampermonkey.net/
 // @version      1.2.5
-// @description  【v1.2.5 |新增】在UI面板中新增API Key设置功能，方便用户配置AI服务。
+// @description  【v1.2.5 |新增】重大更新
 // @author       Coren & Gemini
 // @match        https://www.sclpa.cn/*
 // @match        https://zyys.ihehang.com/*
@@ -48,8 +48,9 @@
     let currentPageHash = '';
     let isChangingChapter = false;
     let isAiAnswerPending = false; // Flag to track if AI answer is currently being awaited
-    let currentQuestionText = ''; // Stores the text of the current question to detect changes
-    let isSubmittingExam = false; // NEW: Flag to indicate if exam submission process is ongoing
+    let currentQuestionBatchText = ''; // Renamed from currentQuestionText to reflect batch processing
+    let isSubmittingExam = false; // Flag to indicate if exam submission process is ongoing
+    let currentNavContext = GM_getValue('sclpa_nav_context', '');
 
 
     // ===================================================================================
@@ -123,8 +124,6 @@
             .panel-btn { padding: 8px 16px; font-size: 14px; color: white; border: none; border-radius: 5px; cursor: pointer; transition: background-color 0.3s; min-width: 120px; width: 100%; box-sizing: border-box; }
             .service-btn-active { background-color: #28a745; }
             .service-btn-paused { background-color: #dc3545; }
-            .mode-btn-full { background-color: #17a2b8; }
-            .mode-btn-video { background-color: #ffc107; color: #212529 !important; }
             .nav-btn { padding: 5px 10px; font-size: 12px; color: #007bff; background-color: #fff; border: 1px solid #007bff; border-radius: 5px; cursor: pointer; transition: all 0.3s; width: 100%; }
             .nav-btn:hover { background-color: #007bff; color: #fff; }
             .panel-divider { width: 100%; height: 1px; background-color: #eee; margin: 5px 0; }
@@ -160,11 +159,6 @@
                 </div>
                 <div class="panel-divider"></div>
                 <div class="setting-row">
-                    <label>当前模式:</label>
-                    <button id="mode-toggle-btn" class="panel-btn"></button>
-                </div>
-                <div class="panel-divider"></div>
-                <div class="setting-row">
                     <label>AI API Key 设置:</label>
                     <button id="api-key-setting-btn" class="panel-btn api-key-action-btn">设置 API Key</button>
                 </div>
@@ -175,8 +169,8 @@
                         <button id="nav-specialized-btn" class="nav-btn">专业课程</button>
                         <button id="nav-public-video-btn" class="nav-btn">公需课-视频</button>
                         <button id="nav-public-article-btn" class="nav-btn">公需课-文章</button>
-                        <button id="nav-specialized-exam-btn" class="nav-btn">专业课-考试</button> <!-- New button for specialized exam -->
-                        <button id="nav-public-exam-btn" class="nav-btn">公需课-考试</button> <!-- New button for public exam -->
+                        <button id="nav-specialized-exam-btn" class="nav-btn">专业课-考试</button>
+                        <button id="nav-public-exam-btn" class="nav-btn">公需课-考试</button>
                     </div>
                 </div>
             </div>
@@ -184,40 +178,27 @@
         document.body.appendChild(panel);
 
         const serviceBtn = document.getElementById('service-toggle-btn');
-        const modeBtn = document.getElementById('mode-toggle-btn');
         const collapseBtn = document.getElementById('mode-switcher-toggle-collapse');
         const navSpecializedBtn = document.getElementById('nav-specialized-btn');
         const navPublicVideoBtn = document.getElementById('nav-public-video-btn');
         const navPublicArticleBtn = document.getElementById('nav-public-article-btn');
-        // New navigation buttons
         const navSpecializedExamBtn = document.getElementById('nav-specialized-exam-btn');
         const navPublicExamBtn = document.getElementById('nav-public-exam-btn');
 
         const speedSlider = document.getElementById('speed-slider');
         const speedDisplay = document.getElementById('speed-display');
-        const apiKeySettingBtn = document.getElementById('api-key-setting-btn'); // New API Key button
+        const apiKeySettingBtn = document.getElementById('api-key-setting-btn');
 
         const updateServiceButton = (isActive) => {
             serviceBtn.innerText = isActive ? '服务运行中' : '服务已暂停';
             serviceBtn.className = 'panel-btn ' + (isActive ? 'service-btn-active' : 'service-btn-paused');
         };
-        const updateModeButton = (mode) => {
-            modeBtn.innerText = mode === 'full' ? '完整模式' : '仅视频模式';
-            modeBtn.className = 'panel-btn ' + (mode === 'full' ? 'mode-btn-full' : 'mode-btn-video');
-        };
-
         updateServiceButton(isServiceActive);
-        updateModeButton(scriptMode);
 
         serviceBtn.onclick = () => {
             isServiceActive = !isServiceActive;
             GM_setValue('sclpa_service_active', isServiceActive);
             window.location.reload();
-        };
-        modeBtn.onclick = () => {
-            scriptMode = (scriptMode === 'full') ? 'video' : 'full';
-            GM_setValue('sclpa_script_mode', scriptMode);
-            updateModeButton(scriptMode);
         };
         speedSlider.addEventListener('input', () => {
             speedDisplay.textContent = `x${speedSlider.value}`;
@@ -232,31 +213,37 @@
             panel.classList.toggle('collapsed');
             collapseBtn.innerText = panel.classList.contains('collapsed') ? '＋' : '－';
         };
-        navSpecializedBtn.onclick = () => window.location.href = 'https://zyys.ihehang.com/#/specialized';
+
+        navSpecializedBtn.onclick = () => {
+            GM_setValue('sclpa_nav_context', 'course');
+            window.location.href = 'https://zyys.ihehang.com/#/specialized';
+        };
         navPublicVideoBtn.onclick = () => {
             GM_setValue('sclpa_public_target', 'video');
+            GM_setValue('sclpa_nav_context', 'course');
             window.location.href = 'https://zyys.ihehang.com/#/publicDemand';
         };
         navPublicArticleBtn.onclick = () => {
             GM_setValue('sclpa_public_target', 'article');
+            GM_setValue('sclpa_nav_context', 'course');
             window.location.href = 'https://zyys.ihehang.com/#/publicDemand';
         };
 
-        // New button event listeners for exam pages
         navSpecializedExamBtn.onclick = () => {
+            GM_setValue('sclpa_nav_context', 'exam');
             window.location.href = 'https://zyys.ihehang.com/#/onlineExam';
         };
         navPublicExamBtn.onclick = () => {
+            GM_setValue('sclpa_nav_context', 'exam');
             window.location.href = 'https://zyys.ihehang.com/#/openOnlineExam';
         };
 
-        // New API Key setting button click handler
         apiKeySettingBtn.onclick = () => {
             const currentKey = GM_getValue('sclpa_deepseek_api_key', '');
             const newKey = prompt('请输入您的 DeepSeek AI API Key:', currentKey);
-            if (newKey !== null) { // User didn't click cancel
+            if (newKey !== null) {
                 GM_setValue('sclpa_deepseek_api_key', newKey.trim());
-                CONFIG.AI_API_SETTINGS.API_KEY = newKey.trim(); // Update current config immediately
+                CONFIG.AI_API_SETTINGS.API_KEY = newKey.trim();
                 alert('API Key 已保存！下次页面加载时生效。');
             }
         };
@@ -387,7 +374,6 @@
                 reject('API Key 未设置或不正确，请在控制面板中设置！');
                 return;
             }
-            // IMPORTANT: Modified system content to strictly adhere to the requested output format.
             const payload = {
                 model: "deepseek-chat",
                 messages: [{
@@ -562,79 +548,78 @@
     function handleExamPage() {
         if (!isServiceActive) return; // Only run if service is active
 
-        // If an exam submission is already in progress, do not interfere.
+        currentNavContext = GM_getValue('sclpa_nav_context', ''); // Ensure context is fresh
+        if (currentNavContext === 'course') {
+            console.log('[Script] Current navigation context is "course". Ignoring exam automation and navigating back to course list.');
+            safeNavigateBackToList();
+            return;
+        }
+
         if (isSubmittingExam) {
             console.log('[Script] Exam submission in progress, deferring AI processing.');
             return;
         }
 
-        // Ensure AI helper panel is present
         if (!document.getElementById('ai-helper-panel')) {
             createManualAiHelper();
-            // Give a small delay for the panel to be rendered before copying content
             setTimeout(() => {
-                triggerAiQuestionAndProcessAnswer(); // Start the AI process after panel is ready
+                triggerAiQuestionAndProcessAnswer();
             }, 500);
         } else {
-            // Panel already exists, proceed to copy content
             triggerAiQuestionAndProcessAnswer();
         }
     }
 
     /**
-     * Copies exam question and options to the AI helper textarea.
-     * Then triggers the AI query and waits for the response to select answers.
+     * Gathers all questions and options from the current exam page,
+     * sends them to AI, and waits for the response to select answers.
      */
     async function triggerAiQuestionAndProcessAnswer() {
-        const examinationBody = document.querySelector('.examination-body-left');
+        const examinationItems = document.querySelectorAll('.examination-body-item');
         const aiHelperTextarea = document.getElementById('ai-helper-textarea');
         const aiHelperSubmitBtn = document.getElementById('ai-helper-submit-btn');
         const aiHelperResultDiv = document.getElementById('ai-helper-result');
 
-        if (!examinationBody || !aiHelperTextarea || !aiHelperSubmitBtn || !aiHelperResultDiv) {
-            console.log('[Script] Required AI helper elements or examination body not found for AI processing.');
+        if (examinationItems.length === 0 || !aiHelperTextarea || !aiHelperSubmitBtn || !aiHelperResultDiv) {
+            console.log('[Script] No examination items found or AI helper elements missing.');
             return;
         }
 
-        const newQuestionContent = examinationBody.innerText.trim();
+        let fullQuestionBatchContent = '';
+        examinationItems.forEach(item => {
+            fullQuestionBatchContent += item.innerText.trim() + '\n\n'; // Concatenate all questions
+        });
 
-        // Only process if the question has changed and AI answer is not pending
-        if (newQuestionContent && newQuestionContent !== currentQuestionText && !isAiAnswerPending) {
-            currentQuestionText = newQuestionContent; // Update current question
-            aiHelperTextarea.value = newQuestionContent; // Set textarea value
-            aiHelperResultDiv.innerText = '正在向AI发送请求...'; // Clear previous result and show loading
-            console.log('[Script] New exam content copied to AI helper textarea, triggering AI query...');
+        // Only process if the batch of questions has changed and AI answer is not pending
+        if (fullQuestionBatchContent && fullQuestionBatchContent !== currentQuestionBatchText && !isAiAnswerPending) {
+            currentQuestionBatchText = fullQuestionBatchContent; // Update current batch text
+            aiHelperTextarea.value = fullQuestionBatchContent; // Set textarea value with all questions
+            aiHelperResultDiv.innerText = '正在向AI发送请求...';
+            console.log('[Script] New batch of exam questions copied to AI helper textarea, triggering AI query...');
 
-            isAiAnswerPending = true; // Set flag to true
+            isAiAnswerPending = true;
 
-            // Programmatically click the submit button
-            // This will trigger the askAiForAnswer function attached to its onclick event
             clickElement(aiHelperSubmitBtn);
 
-            // Wait for AI response using a polling mechanism
             let attempts = 0;
-            const maxAttempts = 40; // Max 40 attempts * 500ms = 20 seconds
-            const checkInterval = 500; // Check every 500ms
+            const maxAttempts = 120; // Max 120 attempts * 500ms = 60 seconds
+            const checkInterval = 500;
 
             const checkAiResult = setInterval(() => {
-                // Check if resultDiv contains an actual answer, not just a loading message
                 if (aiHelperResultDiv.innerText.trim() && aiHelperResultDiv.innerText.trim() !== '正在向AI发送请求...' && aiHelperResultDiv.innerText.trim() !== '请先提问...') {
                     clearInterval(checkAiResult);
-                    isAiAnswerPending = false; // Reset flag
+                    isAiAnswerPending = false;
                     console.log('[Script] AI response received:', aiHelperResultDiv.innerText.trim());
-                    parseAndSelectAnswer(aiHelperResultDiv.innerText.trim());
+                    parseAndSelectAllAnswers(aiHelperResultDiv.innerText.trim()); // Call new function to handle all answers
 
-                    // After selecting the answer, determine next step (next question or submit)
-                    // Add a small delay before attempting to click next/submit to ensure UI updates
                     setTimeout(() => {
-                        handleNextQuestionOrSubmitExam();
-                    }, 1000); // 1 second delay
+                        handleNextQuestionOrSubmitExam(); // After all answers are selected, move to next step
+                    }, 1000);
                 } else if (attempts >= maxAttempts) {
                     clearInterval(checkAiResult);
-                    isAiAnswerPending = false; // Reset flag
-                    console.log('[Script] Timeout waiting for AI response.');
+                    isAiAnswerPending = false;
+                    console.log('[Script] Timeout waiting for AI response for question batch.');
                     aiHelperResultDiv.innerText = 'AI请求超时，请手动重试。';
-                    // Potentially attempt to click next or submit even on timeout if stuck
                     setTimeout(() => {
                         handleNextQuestionOrSubmitExam();
                     }, 1000);
@@ -643,70 +628,74 @@
             }, checkInterval);
 
         } else if (isAiAnswerPending) {
-            console.log('[Script] AI answer already pending for current question, skipping new query.');
-        } else if (newQuestionContent === currentQuestionText) {
-            console.log('[Script] Question content has not changed, skipping AI query.');
+            console.log('[Script] AI answer already pending for current question batch, skipping new query.');
+        } else if (fullQuestionBatchContent === currentQuestionBatchText) {
+            console.log('[Script] Question batch content has not changed, skipping AI query.');
         }
     }
 
 
     /**
-     * Parses the AI response and automatically selects the corresponding options on the exam page.
-     * @param {string} aiResponse - The raw response string from the AI (e.g., "1.A" or "2.ABC").
+     * Parses the AI response and automatically selects the corresponding options for all questions on the exam page.
+     * @param {string} aiResponse - The raw response string from the AI (e.g., "1.A\n2.BC\n3.D").
      */
-    function parseAndSelectAnswer(aiResponse) {
-        // AI response format is "题目序号:字母选项" (e.g., "1.A" or "1.ABC"), potentially across multiple lines
-        const lines = aiResponse.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+    function parseAndSelectAllAnswers(aiResponse) {
+        const aiAnswerLines = aiResponse.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+        const examinationItems = document.querySelectorAll('.examination-body-item');
 
-        // Get the currently displayed question number from the page
-        const currentQuestionTitleElement = document.querySelector('.examination-body-title');
-        let displayedQuestionNumber = null;
-        if (currentQuestionTitleElement) {
-            const match = currentQuestionTitleElement.innerText.trim().match(/^(\d+)、/);
-            displayedQuestionNumber = match ? parseInt(match[1]) : null;
-        }
-
-        if (displayedQuestionNumber === null) {
-            console.warn('[Script] Could not extract current displayed question number from the page. Skipping answer selection.');
-            return;
-        }
-
-        for (const line of lines) {
+        const aiAnswersMap = new Map(); // Map to store {questionNumber: answerLetters}
+        aiAnswerLines.forEach(line => {
             const parts = line.split('.');
-            if (parts.length < 2) {
-                console.warn('[Script] Invalid AI response line format:', line);
-                continue;
-            }
-
-            const aiQuestionNumber = parseInt(parts[0]);
-            const answerLetters = parts[1].toUpperCase(); // Ensure letters are uppercase
-
-            // Only process the answer if it matches the currently displayed question number
-            if (aiQuestionNumber === displayedQuestionNumber) {
-                console.log(`[Script] Processing AI answer for displayed question ${displayedQuestionNumber}: ${answerLetters}`);
-                for (const letter of answerLetters) {
-                    const optionText = `${letter}.`; // e.g., "A."
-                    // Find the option element. The text might include the full description, so use `includes` or specific selector if available.
-                    // Based on HTML structure <div class="examination-check-item"> A. ... </div>
-                    const optionElement = Array.from(document.querySelectorAll('.examination-check-item')).find(el =>
-                        el.innerText.trim().startsWith(optionText)
-                    );
-
-                    if (optionElement) {
-                        console.log(`[Script] Selecting option: ${letter} for question ${displayedQuestionNumber}`);
-                        clickElement(optionElement); // Click the option element
-                    } else {
-                        console.warn(`[Script] Option '${letter}' not found for question ${displayedQuestionNumber} using text '${optionText}'.`);
-                    }
+            if (parts.length >= 2) {
+                const qNum = parseInt(parts[0]);
+                const ansLetters = parts[1].toUpperCase();
+                if (!isNaN(qNum) && ansLetters) {
+                    aiAnswersMap.set(qNum, ansLetters);
+                } else {
+                    console.warn(`[Script] Invalid AI response line format or content: ${line}`);
                 }
             } else {
-                console.log(`[Script] AI answer for question ${aiQuestionNumber} does not match current displayed question ${displayedQuestionNumber}. Skipping.`);
+                console.warn(`[Script] Invalid AI response line format: ${line}`);
             }
-        }
+        });
+
+        examinationItems.forEach(item => {
+            const questionTitleElement = item.querySelector('.examination-body-title');
+            if (questionTitleElement) {
+                const match = questionTitleElement.innerText.trim().match(/^(\d+)、/);
+                const questionNumber = match ? parseInt(match[1]) : null;
+
+                if (questionNumber !== null && aiAnswersMap.has(questionNumber)) {
+                    const answerLetters = aiAnswersMap.get(questionNumber);
+                    console.log(`[Script] Processing Q${questionNumber}: Selecting options ${answerLetters}`);
+
+                    for (const letter of answerLetters) {
+                        const optionText = `${letter}.`;
+                        // Find options specific to this question item
+                        const optionElement = Array.from(item.querySelectorAll('.examination-check-item')).find(el =>
+                            el.innerText.trim().startsWith(optionText)
+                        );
+
+                        if (optionElement) {
+                            console.log(`[Script] Selecting option: ${letter} for Q${questionNumber}`);
+                            clickElement(optionElement);
+                        } else {
+                            console.warn(`[Script] Option '${letter}' not found for Q${questionNumber} using text '${optionText}'.`);
+                        }
+                    }
+                } else if (questionNumber === null) {
+                    console.warn('[Script] Could not extract question number from item:', item.innerText.trim().substring(0, 50) + '...');
+                } else {
+                    console.log(`[Script] No AI answer found for Q${questionNumber} in AI response. Skipping.`);
+                }
+            }
+        });
+        console.log('[Script] Finished parsing and selecting all answers on current page.');
     }
 
+
     /**
-     * NEW: Handles navigation after answering a question: either to the next question or submits the exam.
+     * Handles navigation after answering a question: either to the next question or submits the exam.
      */
     function handleNextQuestionOrSubmitExam() {
         if (!isServiceActive || isSubmittingExam) {
@@ -715,36 +704,35 @@
         }
 
         // First, try to find the "下一题" button
-        const nextQuestionButton = findElementByText('button span', '下一题'); // Assuming a button with text "下一题"
+        const nextQuestionButton = findElementByText('button span', '下一题');
 
         if (nextQuestionButton) {
             console.log('[Script] Found "下一题" button, clicking it...');
             clickElement(nextQuestionButton.closest('button'));
-            // After clicking "下一题", the page should load the next question.
+            // After clicking "下一题", the page should load the next question batch.
             // mainLoop will detect hash change and re-trigger handleExamPage,
-            // or if on the same hash but content changed, triggerAiQuestionAndProcessAnswer will detect new question.
+            // or if on the same hash but content changed, triggerAiQuestionAndProcessAnswer will detect new questions.
+            // Reset question batch text to ensure new questions are processed
+            currentQuestionBatchText = '';
         } else {
             // If "下一题" not found, try to find "提交试卷"
             const submitExamButton = findElementByText('button.submit-btn span', '提交试卷');
 
             if (submitExamButton) {
                 console.log('[Script] "下一题" not found. Found "提交试卷" button, clicking it...');
-                isSubmittingExam = true; // Set flag to prevent re-entry
+                isSubmittingExam = true;
                 clickElement(submitExamButton.closest('button'));
 
-                // After submission, wait for any potential popups and then navigate back to list.
-                // handleGenericPopups will catch the "确定" popup if it appears quickly.
                 setTimeout(() => {
                     console.log('[Script] Exam submitted. Navigating back to exam list page...');
                     const hash = window.location.hash.toLowerCase();
-                    // Determine the correct exam list URL to return to
                     const returnUrl = hash.includes('openonlineexam')
                         ? 'https://zyys.ihehang.com/#/openOnlineExam'
                         : 'https://zyys.ihehang.com/#/onlineExam';
                     window.location.href = returnUrl;
-                    isSubmittingExam = false; // Reset flag after navigation attempt
-                    currentQuestionText = ''; // Clear question text for next exam loop iteration
-                }, 3000); // Give time for submission and potential popup
+                    isSubmittingExam = false;
+                    currentQuestionBatchText = ''; // Clear for next exam cycle
+                }, 3000);
             } else {
                 console.log('[Script] Neither "下一题" nor "提交试卷" button found. Check page state or selectors.');
             }
@@ -760,26 +748,25 @@
     function handleExamListPage() {
         if (!isServiceActive) return;
 
-        // 1. Find the "待考试" tab
+        currentNavContext = GM_getValue('sclpa_nav_context', '');
+        if (currentNavContext !== 'exam') {
+            console.log('[Script] Not in "exam" navigation context. Skipping exam list processing.');
+            return;
+        }
+
         const pendingExamTab = findElementByText('div.radio-tab-tag', '待考试');
 
-        // Check if the tab exists and is not already active
         if (pendingExamTab && !isUnfinishedTabActive(pendingExamTab)) {
             console.log('[Script] Found "待考试" tab, clicking it...');
             clickElement(pendingExamTab);
-            // After clicking the tab, wait a bit for the content to load, then try to click "开始考试"
             setTimeout(() => {
                 attemptClickStartExamButton();
-            }, 2500); // Give the page some time to render after tab switch
+            }, 2500);
         } else if (pendingExamTab) {
             console.log('[Script] "待考试" tab is already active. Attempting to find "开始考试" button...');
             attemptClickStartExamButton();
         } else {
-            // If no "待考试" tab or no "开始考试" button is found after a reasonable time,
-            // it implies no more exams are pending.
             console.log('[Script] No "待考试" tab or pending exam found. All exams might be completed.');
-            // Optionally, you might want to stop the service or navigate elsewhere here.
-            // For now, let the mainLoop continue.
         }
     }
 
@@ -787,29 +774,43 @@
      * Attempts to find and click the "开始考试" button for the first available exam.
      */
     function attemptClickStartExamButton() {
-        // Find the first "开始考试" button
         const startExamButton = findElementByText('button.el-button--danger span', '开始考试');
 
         if (startExamButton) {
             console.log('[Script] Found "开始考试" button, clicking it...');
-            clickElement(startExamButton.closest('button')); // Click the parent button element
+            clickElement(startExamButton.closest('button'));
         } else {
             console.log('[Script] "开始考试" button not found on the page.');
-            // If "开始考试" button is not found, it means no pending exams, possibly all completed.
-            // We can add a more explicit check here later if needed.
         }
     }
 
 
     /**
-     * Handle generic popups
+     * Handle generic popups, including the "前往考试" popup after course completion.
      */
     function handleGenericPopups() {
         if (!isServiceActive || isPopupBeingHandled) return;
-        const btn = findElementByText('button span', '确定') || findElementByText('button span', '进入下一节学习');
-        if (btn) {
+
+        const examCompletionPopupMessage = document.querySelector('.el-message-box__message p');
+        const goToExamBtnInPopup = findElementByText('button.el-button--primary span', '前往考试');
+        const cancelBtnInPopup = findElementByText('button.el-button--default span', '取消');
+
+        if (examCompletionPopupMessage && examCompletionPopupMessage.innerText.includes('恭喜您已经完成所有课程学习') && goToExamBtnInPopup && cancelBtnInPopup) {
+            currentNavContext = GM_getValue('sclpa_nav_context', '');
+            if (currentNavContext === 'course') {
+                console.log('[Script] Detected "前往考试" completion popup in course context. Clicking "取消" to dismiss.');
+                isPopupBeingHandled = true;
+                clickElement(cancelBtnInPopup.closest('button'));
+                setTimeout(() => { isPopupBeingHandled = false; }, 2500);
+                return;
+            }
+        }
+
+        const genericBtn = findElementByText('button span', '确定') || findElementByText('button span', '进入下一节学习');
+        if (genericBtn) {
+            console.log(`[Script] Detected generic popup button: ${genericBtn.innerText.trim()}. Clicking it.`);
             isPopupBeingHandled = true;
-            clickElement(btn.closest('button'));
+            clickElement(genericBtn.closest('button'));
             setTimeout(() => { isPopupBeingHandled = false; }, 2500);
         }
     }
@@ -849,10 +850,12 @@
     }
 
     /**
-     * Prevent webpage from resetting video playback rate
+     * Initializes video playback fixes including rate anti-rollback and background playback prevention.
      */
-    function preventPlaybackRateLock() {
-        console.log('[Script] Starting video playback rate anti-rollback mechanism.');
+    function initializeVideoPlaybackFixes() {
+        console.log('[Script] Initializing video playback fixes (rate anti-rollback and background playback).');
+
+        // 1. Prevent webpage from resetting video playback rate
         hook(Object, 'defineProperty', (original) => function(target, property, descriptor) {
             if (target instanceof HTMLMediaElement && property === 'playbackRate') {
                 console.log('[Script] Detected website attempting to lock video playback rate, intercepted.');
@@ -860,6 +863,24 @@
             }
             return original.apply(this, arguments);
         });
+
+        // 2. Prevent video pausing when tab is in background by faking visibility state
+        try {
+            Object.defineProperty(document, "hidden", {
+                get: function() {
+                    return false;
+                },
+                configurable: true
+            });
+            Object.defineProperty(document, "visibilityState", {
+                get: function() {
+                    return "visible";
+                },
+                configurable: true
+            });
+        } catch (e) {
+            console.warn('[Script] Failed to hook document visibility properties, background video playback might not work:', e);
+        }
     }
 
 
@@ -868,7 +889,7 @@
      */
     function safeNavigateBackToList() {
         const hash = window.location.hash.toLowerCase();
-        const returnUrl = hash.includes('public') || hash.includes('openplayer') || hash.includes('imageandtext')
+        const returnUrl = hash.includes('public') || hash.includes('openplayer') || hash.includes('imageandtext') || hash.includes('openonlineexam')
             ? 'https://zyys.ihehang.com/#/publicDemand'
             : 'https://zyys.ihehang.com/#/specialized';
         window.location.href = returnUrl;
@@ -879,18 +900,25 @@
      */
     function safeNavigateAfterCourseCompletion() {
         const hash = window.location.hash.toLowerCase();
+
+        currentNavContext = GM_getValue('sclpa_nav_context', '');
+        if (currentNavContext === 'course') {
+            console.log('[Script] Current navigation context is "course". Navigating back to course list after completion.');
+            safeNavigateBackToList();
+            return;
+        }
+
         if (hash.includes('public') || hash.includes('openplayer') || hash.includes('imageandtext')) {
             safeNavigateBackToList();
             return;
         }
-        if (scriptMode === 'full') {
-            const goToExamButton = findElementByText('button span', '前往考试');
-            if (goToExamButton) {
-                clickElement(goToExamButton.closest('button'));
-            } else {
-                safeNavigateBackToList();
-            }
+
+        const goToExamButton = findElementByText('button span', '前往考试');
+        if (goToExamButton) {
+            console.log('[Script] Course completed. Found "前往考试" button, clicking it.');
+            clickElement(goToExamButton.closest('button'));
         } else {
+            console.log('[Script] Course completed. "前往考试" button not found, navigating back to course list.');
             safeNavigateBackToList();
         }
     }
@@ -909,11 +937,11 @@
             handleCourseListPage('专业课');
         } else if (hash.includes('/publicdemand')) {
             handleCourseListPage('公需课');
-        } else if (hash.includes('/examination')) { // This is for handling the specific exam page where AI panel appears
+        } else if (hash.includes('/examination')) {
             handleExamPage();
         } else if (hash.includes('/majorplayerpage') || hash.includes('/articleplayerpage') || hash.includes('/openplayer') || hash.includes('/imageandtext')) {
              handleLearningPage();
-        } else if (hash.includes('/onlineexam') || hash.includes('/openonlineexam')) { // Handle exam list pages
+        } else if (hash.includes('/onlineexam') || hash.includes('/openonlineexam')) {
             handleExamListPage();
         }
     }
@@ -928,11 +956,10 @@
             if (oldHash.includes('/examination') && !currentPageHash.includes('/examination')) {
                 const aiPanel = document.getElementById('ai-helper-panel');
                 if (aiPanel) aiPanel.remove();
-                currentQuestionText = ''; // Clear question text on exam page exit
-                isAiAnswerPending = false; // Reset AI answer pending flag
-                isSubmittingExam = false; // NEW: Reset submission flag when leaving exam page
+                currentQuestionBatchText = ''; // Reset batch text on exam page exit
+                isAiAnswerPending = false;
+                isSubmittingExam = false;
             }
-            // Reset unfinishedTabClicked when navigating back to course/public demand pages or exam list pages
             if (currentPageHash.includes('/specialized') || currentPageHash.includes('/publicdemand') ||
                 currentPageHash.includes('/onlineexam') || currentPageHash.includes('/openonlineexam')) {
                 unfinishedTabClicked = false;
@@ -953,8 +980,9 @@
         console.log(`[Script] Sichuan Licensed Pharmacist Continuing Education (v1.1.5) started.`);
         console.log(`[Script] Service status: ${isServiceActive ? 'Running' : 'Paused'} | Current mode: ${scriptMode} | Current speed: ${currentPlaybackRate}x`);
         currentPageHash = window.location.hash;
+        currentNavContext = GM_getValue('sclpa_nav_context', '');
 
-        preventPlaybackRateLock();
+        initializeVideoPlaybackFixes();
         createModeSwitcherPanel();
 
         setInterval(mainLoop, 2000);

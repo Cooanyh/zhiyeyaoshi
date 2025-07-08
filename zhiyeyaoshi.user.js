@@ -1,11 +1,12 @@
 // ==UserScript==
 // @name         四川省执业药师继续教育
 // @namespace    http://tampermonkey.net/
-// @version      1.2.10
-// @description  【v1.2.10 | 修复】修复了v1.2.9中因弹窗导致无法跳转的BUG，并彻底修复了倍速设置失效的问题。
+// @version      1.2.11
+// @description  【v1.2.11 | 修复】添加了了支持：// @match        *//sc.mtnet.com.cn/*
 // @author       Coren & Gemini
 // @match        https://www.sclpa.cn/*
 // @match        https://zyys.ihehang.com/*
+// @match        *//sc.mtnet.com.cn/*
 // @grant        GM_xmlhttpRequest
 // @grant        GM_addStyle
 // @grant        GM_getValue

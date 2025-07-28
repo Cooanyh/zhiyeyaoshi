@@ -1,12 +1,11 @@
 // ==UserScript==
 // @name         四川省执业药师继续教育
 // @namespace    http://tampermonkey.net/
-// @version      1.2.11
-// @description  【v1.2.11 | 修复】添加了了支持：// @match        *//sc.mtnet.com.cn/*
-// @author       Coren & Gemini
+// @version      1.2.12
+// @description  【v1.2.12 | 优化】更新部分描述文字
+// @author       Coren
 // @match        https://www.sclpa.cn/*
 // @match        https://zyys.ihehang.com/*
-// @match        *//sc.mtnet.com.cn/*
 // @grant        GM_xmlhttpRequest
 // @grant        GM_addStyle
 // @grant        GM_getValue

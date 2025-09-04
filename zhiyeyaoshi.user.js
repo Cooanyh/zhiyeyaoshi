@@ -13,6 +13,9 @@
 // @connect      api.deepseek.com
 // @connect      self
 // @license MIT
+// MIT License
+// Copyright (c) 2025 Coren（Cooanyh）
+// 本代码基于MIT协议，必须保留原始版权声明和许可证内容，不得删改。
 // ==/UserScript==
 
 // Script execution starts here. This log should appear first in console if script loads.

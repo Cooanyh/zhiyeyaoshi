@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         四川省执业药师继续教育
 // @namespace    http://tampermonkey.net/
-// @version      1.2.12
-// @description  【v1.2.12 | 优化】更新部分描述文字
+// @version      1.2.13
+// @description  【v1.2.13 | 优化】四川职业药师继续教育;更新了部分描述，自该版本起更新了协议
 // @author       Coren
 // @match        https://www.sclpa.cn/*
 // @match        https://zyys.ihehang.com/*
@@ -12,10 +12,8 @@
 // @grant        GM_setValue
 // @connect      api.deepseek.com
 // @connect      self
-// @license MIT
-// MIT License
-// Copyright (c) 2025 Coren（Cooanyh）
-// 本代码基于MIT协议，必须保留原始版权声明和许可证内容，不得删改。
+// @license CC BY-NC-SA 4.0
+// license: https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans
 // ==/UserScript==
 
 // Script execution starts here. This log should appear first in console if script loads.

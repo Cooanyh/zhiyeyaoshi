@@ -69,4 +69,5 @@
 如您不同意上述条款，请立即删除本脚本并停止使用。
 
 📄 许可证
-本脚本基于 MIT License 开源。
+1. 自1.2.13版本起本脚本基于 [license CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans) 开源。
+2. 1.2.13版本前为 MIT License

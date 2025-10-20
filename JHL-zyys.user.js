@@ -10,7 +10,8 @@
 // @grant        GM_setValue
 // @grant        GM_xmlhttpRequest
 // @connect      api.deepseek.com
-// @license      MIT
+// @license CC BY-NC-SA 4.0
+// license: https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans
 // ==/UserScript==
 
 (function() {

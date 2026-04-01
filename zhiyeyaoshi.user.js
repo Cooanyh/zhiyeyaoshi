@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         四川省执业药师继续教育
 // @namespace    http://tampermonkey.net/
-// @version      1.3.2
-// @description  【v1.3.2 | 优化】四川职业药师继续教育;优化倍速调整体验，无需重新加载页面；增强视频防护机制，防止被暂停
+// @version      1.3.5
+// @description  【v1.3.5 | 增强计时】四川职业药师继续教育;增强页面计时加速功能，支持setTimeout/setInterval/Date全面加速；支持文章阅读计时加速；采用微软Fluent Design界面
 // @author       Coren
 // @match        https://www.sclpa.cn/*
 // @match        https://zyys.ihehang.com/*
@@ -27,7 +27,7 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
     // ===================================================================================
 
     // Get user-defined playback speed from storage, default to 16x if not set
-    let currentPlaybackRate = GM_getValue('sclpa_playback_rate', 16.0);
+    let currentPlaybackRate = GM_getValue('sclpa_playback_rate', 1.0);
     // Get user-defined AI API Key from storage
     let aiApiKey = GM_getValue('sclpa_deepseek_api_key', '请在此处填入您自己的 DeepSeek API Key');
 
@@ -55,6 +55,7 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
     let currentQuestionBatchText = ''; // Renamed from currentQuestionText to reflect batch processing
     let isSubmittingExam = false; // Flag to indicate if exam submission process is ongoing
     let currentNavContext = GM_getValue('sclpa_nav_context', '');
+    let hasSpeedChangeAlertShown = GM_getValue('sclpa_speed_alert_shown', false); // Flag to track if speed change alert has been shown
 
 
     // ===================================================================================
@@ -133,87 +134,508 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
 
         try {
             GM_addStyle(`
-                #mode-switcher-panel { position: fixed; bottom: 20px; right: 20px; width: 380px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); z-index: 10000; overflow: hidden; font-family: 'Microsoft YaHei', -apple-system, sans-serif; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
-                #mode-switcher-panel:hover { transform: translateY(-2px); box-shadow: 0 15px 50px rgba(0,0,0,0.25); }
-                #mode-switcher-panel.collapsed { width: 200px; }
-                #mode-switcher-header { padding: 15px 20px; background: rgba(255,255,255,0.15); backdrop-filter: blur(10px); color: white; cursor: move; user-select: none; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1); }
-                #mode-switcher-header h3 { margin: 0; font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
-                #mode-switcher-toggle-collapse { background: rgba(255,255,255,0.2); border: none; color: white; font-size: 18px; cursor: pointer; padding: 6px 12px; border-radius: 8px; transition: all 0.3s; }
-                #mode-switcher-toggle-collapse:hover { background: rgba(255,255,255,0.3); transform: scale(1.05); }
+                /* Microsoft Fluent Design System - 微软流畅设计系统 */
+                #mode-switcher-panel {
+                    position: fixed;
+                    bottom: 20px;
+                    right: 20px;
+                    width: 400px;
+                    background: #FFFFFF;
+                    border-radius: 8px;
+                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08);
+                    z-index: 10000;
+                    overflow: hidden;
+                    font-family: 'Segoe UI Variable', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+                    transition: all 0.2s ease;
+                    border: 1px solid rgba(0, 0, 0, 0.06);
+                }
                 
-                #mode-switcher-tabs { display: flex; background: rgba(255,255,255,0.1); padding: 10px; gap: 8px; }
-                .tab-btn { flex: 1; padding: 10px 16px; background: rgba(255,255,255,0.1); border: none; color: rgba(255,255,255,0.8); font-size: 14px; cursor: pointer; border-radius: 10px; transition: all 0.3s; font-weight: 500; }
-                .tab-btn:hover { background: rgba(255,255,255,0.2); color: white; }
-                .tab-btn.active { background: white; color: #667eea; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+                #mode-switcher-panel:hover {
+                    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.16), 0 4px 12px rgba(0, 0, 0, 0.1);
+                }
                 
-                #mode-switcher-content { padding: 20px; background: white; max-height: 450px; overflow-y: auto; }
-                #mode-switcher-content::-webkit-scrollbar { width: 6px; }
-                #mode-switcher-content::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 3px; }
-                #mode-switcher-content::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 3px; }
-                #mode-switcher-content::-webkit-scrollbar-thumb:hover { background: #a1a1a1; }
+                #mode-switcher-panel.collapsed {
+                    width: 240px;
+                }
                 
-                .tab-content { display: none; animation: fadeIn 0.3s ease; }
-                .tab-content.active { display: block; }
-                @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+                /* Header - 标题栏 */
+                #mode-switcher-header {
+                    padding: 16px 20px;
+                    background: #F3F2F1;
+                    color: #323130;
+                    cursor: move;
+                    user-select: none;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+                }
                 
-                .panel-section { margin-bottom: 20px; }
-                .section-title { font-size: 14px; color: #666; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
-                .section-title::before { content: ''; width: 4px; height: 16px; background: linear-gradient(180deg, #667eea 0%, #764ba2 100%); border-radius: 2px; }
+                #mode-switcher-header h3 {
+                    margin: 0;
+                    font-size: 15px;
+                    font-weight: 600;
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    letter-spacing: -0.01em;
+                }
                 
-                .status-indicator { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 16px; background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 12px; margin-bottom: 16px; }
-                .status-dot { width: 12px; height: 12px; border-radius: 50%; animation: pulse 2s infinite; }
-                .status-dot.active { background: #28a745; box-shadow: 0 0 10px rgba(40,167,69,0.5); }
-                .status-dot.paused { background: #dc3545; box-shadow: 0 0 10px rgba(220,53,69,0.5); animation: none; }
-                @keyframes pulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.2); opacity: 0.7; } }
+                #mode-switcher-toggle-collapse {
+                    background: transparent;
+                    border: none;
+                    color: #605E5C;
+                    font-size: 18px;
+                    cursor: pointer;
+                    padding: 4px 12px;
+                    border-radius: 4px;
+                    transition: all 0.15s ease;
+                    line-height: 1;
+                }
                 
-                .panel-btn { padding: 12px 20px; font-size: 14px; color: white; border: none; border-radius: 10px; cursor: pointer; transition: all 0.3s; width: 100%; box-sizing: border-box; font-weight: 600; }
-                .panel-btn:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.2); }
-                .panel-btn:active { transform: translateY(0); }
-                .service-btn-active { background: linear-gradient(135deg, #28a745 0%, #20c997 100%); }
-                .service-btn-paused { background: linear-gradient(135deg, #dc3545 0%, #c82333 100%); }
+                #mode-switcher-toggle-collapse:hover {
+                    background: rgba(0, 0, 0, 0.05);
+                    color: #323130;
+                }
                 
-                .nav-btn { padding: 12px 16px; font-size: 13px; color: #667eea; background: white; border: 2px solid #e9ecef; border-radius: 10px; cursor: pointer; transition: all 0.3s; width: 100%; margin-bottom: 8px; font-weight: 500; display: flex; align-items: center; gap: 10px; }
-                .nav-btn:last-child { margin-bottom: 0; }
-                .nav-btn:hover { border-color: #667eea; background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); transform: translateX(5px); }
-                .nav-btn-icon { font-size: 18px; }
-                .nav-btn-text { flex: 1; text-align: left; }
-                .nav-btn-arrow { opacity: 0; transition: all 0.3s; }
-                .nav-btn:hover .nav-btn-arrow { opacity: 1; }
+                /* Tabs - 标签页 */
+                #mode-switcher-tabs {
+                    display: flex;
+                    background: #FAFAFA;
+                    padding: 8px;
+                    gap: 4px;
+                    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+                }
                 
-                .setting-row { margin-bottom: 16px; }
-                .setting-row:last-child { margin-bottom: 0; }
-                .setting-row label { display: block; margin-bottom: 8px; font-size: 13px; color: #495057; font-weight: 600; }
+                .tab-btn {
+                    flex: 1;
+                    padding: 8px 12px;
+                    background: transparent;
+                    border: none;
+                    color: #605E5C;
+                    font-size: 13px;
+                    cursor: pointer;
+                    border-radius: 4px;
+                    transition: all 0.15s ease;
+                    font-weight: 500;
+                    font-family: inherit;
+                }
                 
-                .speed-slider-container { display: flex; align-items: center; gap: 12px; background: #f8f9fa; padding: 12px; border-radius: 10px; }
-                .speed-slider-container input[type="range"] { flex: 1; height: 6px; border-radius: 3px; background: #e9ecef; outline: none; -webkit-appearance: none; }
-                .speed-slider-container input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px; border-radius: 50%; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.2); }
-                #speed-display { font-weight: bold; font-size: 16px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; min-width: 50px; text-align: center; }
+                .tab-btn:hover {
+                    background: rgba(0, 0, 0, 0.04);
+                    color: #323130;
+                }
                 
-                .api-key-input { width: 100%; padding: 12px; border: 2px solid #e9ecef; border-radius: 10px; box-sizing: border-box; font-size: 13px; transition: all 0.3s; }
-                .api-key-input:focus { outline: none; border-color: #667eea; box-shadow: 0 0 0 3px rgba(102,126,234,0.1); }
-                .api-key-status { margin-top: 8px; font-size: 12px; padding: 8px 12px; border-radius: 8px; display: flex; align-items: center; gap: 6px; }
-                .api-key-status.configured { background: #d4edda; color: #155724; }
-                .api-key-status.not-configured { background: #fff3cd; color: #856404; }
+                .tab-btn.active {
+                    background: #FFFFFF;
+                    color: #0078D4;
+                    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+                    font-weight: 600;
+                }
                 
-                .panel-divider { width: 100%; height: 1px; background: linear-gradient(90deg, transparent, #e9ecef, transparent); margin: 20px 0; }
+                /* Content - 内容区域 */
+                #mode-switcher-content {
+                    padding: 20px;
+                    background: #FFFFFF;
+                    max-height: 480px;
+                    overflow-y: auto;
+                    max-height: 480px;
+                }
                 
-                .nav-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-                .nav-grid .nav-btn { margin-bottom: 0; }
+                #mode-switcher-content::-webkit-scrollbar {
+                    width: 8px;
+                }
                 
-                .tutorial-content { background: #f8f9fa; padding: 16px; border-radius: 12px; }
-                .tutorial-section { margin-bottom: 20px; }
-                .tutorial-section:last-child { margin-bottom: 0; }
-                .tutorial-section h4 { font-size: 14px; color: #667eea; margin: 0 0 10px 0; display: flex; align-items: center; gap: 8px; }
-                .tutorial-section ul { margin: 0; padding-left: 20px; color: #495057; font-size: 13px; line-height: 1.8; }
-                .tutorial-section li { margin-bottom: 6px; }
-                .tutorial-section li::marker { color: #667eea; }
-                .tutorial-warning { background: #fff3cd; border-left: 4px solid #ffc107; padding: 12px; border-radius: 8px; margin-top: 16px; }
-                .tutorial-warning strong { color: #856404; }
-                .tutorial-link { color: #667eea; text-decoration: none; font-weight: 600; }
-                .tutorial-link:hover { text-decoration: underline; }
+                #mode-switcher-content::-webkit-scrollbar-track {
+                    background: #F3F2F1;
+                }
                 
+                #mode-switcher-content::-webkit-scrollbar-thumb {
+                    background: #C8C8C8;
+                    border-radius: 4px;
+                }
+                
+                #mode-switcher-content::-webkit-scrollbar-thumb:hover {
+                    background: #A8A8A8;
+                }
+                
+                /* Tab Content Animation */
+                .tab-content {
+                    display: none;
+                    animation: fluentFadeIn 0.2s ease;
+                }
+                
+                .tab-content.active {
+                    display: block;
+                }
+                
+                @keyframes fluentFadeIn {
+                    from {
+                        opacity: 0;
+                        transform: translateY(8px);
+                    }
+                    to {
+                        opacity: 1;
+                        transform: translateY(0);
+                    }
+                }
+                
+                /* Section Title */
+                .panel-section {
+                    margin-bottom: 24px;
+                }
+                
+                .panel-section:last-child {
+                    margin-bottom: 0;
+                }
+                
+                .section-title {
+                    font-size: 12px;
+                    color: #605E5C;
+                    margin-bottom: 12px;
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    font-weight: 600;
+                    text-transform: uppercase;
+                    letter-spacing: 0.02em;
+                }
+                
+                /* Status Indicator */
+                .status-indicator {
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 12px;
+                    padding: 16px;
+                    background: #F3F2F1;
+                    border-radius: 6px;
+                    margin-bottom: 16px;
+                    border: 1px solid rgba(0, 0, 0, 0.04);
+                }
+                
+                .status-dot {
+                    width: 10px;
+                    height: 10px;
+                    border-radius: 50%;
+                    animation: fluentPulse 2s infinite;
+                }
+                
+                .status-dot.active {
+                    background: #107C10;
+                    box-shadow: 0 0 8px rgba(16, 124, 16, 0.4);
+                }
+                
+                .status-dot.paused {
+                    background: #D13438;
+                    box-shadow: 0 0 8px rgba(209, 52, 56, 0.4);
+                    animation: none;
+                }
+                
+                @keyframes fluentPulse {
+                    0%, 100% {
+                        transform: scale(1);
+                        opacity: 1;
+                    }
+                    50% {
+                        transform: scale(1.15);
+                        opacity: 0.75;
+                    }
+                }
+                
+                #status-text {
+                    font-size: 14px;
+                    font-weight: 500;
+                    color: #323130;
+                }
+                
+                /* Primary Button */
+                .panel-btn {
+                    padding: 10px 20px;
+                    font-size: 14px;
+                    color: #FFFFFF;
+                    border: none;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    transition: all 0.15s ease;
+                    width: 100%;
+                    box-sizing: border-box;
+                    font-weight: 600;
+                    font-family: inherit;
+                    letter-spacing: 0.01em;
+                }
+                
+                .panel-btn:hover {
+                    transform: translateY(-1px);
+                }
+                
+                .panel-btn:active {
+                    transform: translateY(0);
+                }
+                
+                .service-btn-active {
+                    background: #107C10;
+                }
+                
+                .service-btn-active:hover {
+                    background: #0B5C0B;
+                }
+                
+                .service-btn-paused {
+                    background: #D13438;
+                }
+                
+                .service-btn-paused:hover {
+                    background: #A80000;
+                }
+                
+                #api-key-save-btn.panel-btn:hover {
+                    background: #106EBE !important;
+                }
+                
+                /* Navigation Button */
+                .nav-btn {
+                    padding: 12px 16px;
+                    font-size: 13px;
+                    color: #323130;
+                    background: #FFFFFF;
+                    border: 1px solid #E1DFDD;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    transition: all 0.15s ease;
+                    width: 100%;
+                    margin-bottom: 8px;
+                    font-weight: 500;
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                    font-family: inherit;
+                }
+                
+                .nav-btn:last-child {
+                    margin-bottom: 0;
+                }
+                
+                .nav-btn:hover {
+                    background: #F3F2F1;
+                    border-color: #0078D4;
+                    transform: translateX(4px);
+                }
+                
+                .nav-btn-icon {
+                    font-size: 16px;
+                    width: 24px;
+                    text-align: center;
+                }
+                
+                .nav-btn-text {
+                    flex: 1;
+                    text-align: left;
+                }
+                
+                .nav-btn-arrow {
+                    opacity: 0;
+                    transition: all 0.15s ease;
+                    color: #0078D4;
+                    font-weight: 600;
+                }
+                
+                .nav-btn:hover .nav-btn-arrow {
+                    opacity: 1;
+                }
+                
+                /* Navigation Grid */
+                .nav-grid {
+                    display: grid;
+                    grid-template-columns: 1fr 1fr;
+                    gap: 8px;
+                }
+                
+                .nav-grid .nav-btn {
+                    margin-bottom: 0;
+                }
+                
+                /* Setting Row */
+                .setting-row {
+                    margin-bottom: 20px;
+                }
+                
+                .setting-row:last-child {
+                    margin-bottom: 0;
+                }
+                
+                .setting-row label {
+                    display: block;
+                    margin-bottom: 8px;
+                    font-size: 13px;
+                    color: #323130;
+                    font-weight: 600;
+                }
+                
+                /* Speed Slider */
+                .speed-slider-container {
+                    display: flex;
+                    align-items: center;
+                    gap: 16px;
+                    background: #F3F2F1;
+                    padding: 12px 16px;
+                    border-radius: 4px;
+                    border: 1px solid rgba(0, 0, 0, 0.04);
+                }
+                
+                .speed-slider-container input[type="range"] {
+                    flex: 1;
+                    height: 4px;
+                    border-radius: 2px;
+                    background: #E1DFDD;
+                    outline: none;
+                    -webkit-appearance: none;
+                }
+                
+                .speed-slider-container input[type="range"]::-webkit-slider-thumb {
+                    -webkit-appearance: none;
+                    width: 18px;
+                    height: 18px;
+                    border-radius: 50%;
+                    background: #0078D4;
+                    cursor: pointer;
+                    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+                    transition: all 0.15s ease;
+                }
+                
+                .speed-slider-container input[type="range"]::-webkit-slider-thumb:hover {
+                    transform: scale(1.1);
+                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+                }
+                
+                #speed-display {
+                    font-weight: 700;
+                    font-size: 15px;
+                    color: #0078D4;
+                    min-width: 48px;
+                    text-align: center;
+                    letter-spacing: -0.01em;
+                }
+                
+                /* API Key Input */
+                .api-key-input {
+                    width: 100%;
+                    padding: 10px 12px;
+                    border: 1px solid #E1DFDD;
+                    border-radius: 4px;
+                    box-sizing: border-box;
+                    font-size: 13px;
+                    transition: all 0.15s ease;
+                    font-family: inherit;
+                    color: #323130;
+                }
+                
+                .api-key-input:focus {
+                    outline: none;
+                    border-color: #0078D4;
+                    box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.2);
+                }
+                
+                .api-key-status {
+                    margin-top: 8px;
+                    font-size: 12px;
+                    padding: 8px 12px;
+                    border-radius: 4px;
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    font-weight: 500;
+                }
+                
+                .api-key-status.configured {
+                    background: #DFF6DD;
+                    color: #0B5C0B;
+                    border: 1px solid #A7F0A3;
+                }
+                
+                .api-key-status.not-configured {
+                    background: #FFF4CE;
+                    color: #8A6914;
+                    border: 1px solid #FCEFC4;
+                }
+                
+                /* Divider */
+                .panel-divider {
+                    width: 100%;
+                    height: 1px;
+                    background: #E1DFDD;
+                    margin: 24px 0;
+                }
+                
+                /* Tutorial Content */
+                .tutorial-content {
+                    background: #FAFAFA;
+                    padding: 16px;
+                    border-radius: 4px;
+                    border: 1px solid rgba(0, 0, 0, 0.04);
+                }
+                
+                .tutorial-section {
+                    margin-bottom: 20px;
+                }
+                
+                .tutorial-section:last-child {
+                    margin-bottom: 0;
+                }
+                
+                .tutorial-section h4 {
+                    font-size: 13px;
+                    color: #0078D4;
+                    margin: 0 0 10px 0;
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    font-weight: 600;
+                }
+                
+                .tutorial-section ul {
+                    margin: 0;
+                    padding-left: 20px;
+                    color: #323130;
+                    font-size: 13px;
+                    line-height: 1.7;
+                }
+                
+                .tutorial-section li {
+                    margin-bottom: 6px;
+                }
+                
+                .tutorial-section li::marker {
+                    color: #0078D4;
+                }
+                
+                .tutorial-warning {
+                    background: #FFF4CE;
+                    border-left: 3px solid #FFB900;
+                    padding: 12px;
+                    border-radius: 4px;
+                    margin-top: 16px;
+                }
+                
+                .tutorial-warning strong {
+                    color: #8A6914;
+                }
+                
+                .tutorial-link {
+                    color: #0078D4;
+                    text-decoration: none;
+                    font-weight: 500;
+                }
+                
+                .tutorial-link:hover {
+                    text-decoration: underline;
+                }
+                
+                /* Collapsed State */
                 #mode-switcher-panel.collapsed #mode-switcher-tabs,
-                #mode-switcher-panel.collapsed #mode-switcher-content { display: none; }
+                #mode-switcher-panel.collapsed #mode-switcher-content {
+                    display: none;
+                }
             `);
 
             const panel = document.createElement('div');
@@ -297,7 +719,7 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
                                     ⚠️ 未配置 API Key
                                 </div>
                             </div>
-                            <button id="api-key-save-btn" class="panel-btn" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); margin-top: 12px;">
+                            <button id="api-key-save-btn" class="panel-btn" style="background: #0078D4; margin-top: 12px;">
                                 💾 保存设置
                             </button>
                         </div>
@@ -434,9 +856,14 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
                     GM_setValue('sclpa_playback_rate', newRate);
                     console.log(`[Script] 播放倍速设置为: ${newRate}x，立即应用到所有视频...`);
                     applyCurrentVideoSpeed();
-                    setTimeout(() => {
-                        alert(`✅ 播放倍速已更新为 ${newRate}x，并立即应用到当前页面！\n\n💡 如需在其他页面生效，刷新页面即可。`);
-                    }, 100);
+                    
+                    if (!hasSpeedChangeAlertShown) {
+                        setTimeout(() => {
+                            alert(`✅ 播放倍速已更新为 ${newRate}x，并立即应用到当前页面！\n\n💡 如需在其他页面生效，刷新页面即可。`);
+                            hasSpeedChangeAlertShown = true;
+                            GM_setValue('sclpa_speed_alert_shown', true);
+                        }, 100);
+                    }
                 });
             }
 
@@ -556,30 +983,227 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
 
         try {
             GM_addStyle(`
-                #ai-helper-panel { position: fixed; bottom: 20px; right: 420px; width: 400px; max-width: 90vw; background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); border-radius: 16px; box-shadow: 0 10px 40px rgba(0,0,0,0.25); z-index: 99999; font-family: 'Microsoft YaHei', -apple-system, sans-serif; display: flex; flex-direction: column; overflow: hidden; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
-                #ai-helper-panel:hover { transform: translateY(-2px); box-shadow: 0 15px 50px rgba(0,0,0,0.3); }
-                #ai-helper-header { padding: 15px 20px; background: rgba(255,255,255,0.2); backdrop-filter: blur(10px); color: white; font-weight: bold; cursor: move; user-select: none; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1); }
-                #ai-helper-header h3 { margin: 0; font-size: 16px; display: flex; align-items: center; gap: 10px; }
-                #ai-helper-close-btn { background: rgba(255,255,255,0.2); border: none; color: white; font-size: 18px; cursor: pointer; padding: 6px 12px; border-radius: 8px; transition: all 0.3s; }
-                #ai-helper-close-btn:hover { background: rgba(255,255,255,0.3); transform: scale(1.1); }
-                #ai-helper-content { padding: 20px; background: white; display: flex; flex-direction: column; gap: 16px; }
-                #ai-helper-textarea { width: 100%; box-sizing: border-box; height: 120px; padding: 14px; border: 2px solid #e9ecef; border-radius: 12px; resize: vertical; font-size: 14px; transition: all 0.3s; font-family: inherit; }
-                #ai-helper-textarea:focus { outline: none; border-color: #38ef7d; box-shadow: 0 0 0 3px rgba(56,239,125,0.1); }
-                #ai-helper-submit-btn { padding: 14px 24px; background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); color: white; border: none; border-radius: 12px; cursor: pointer; font-size: 15px; font-weight: 600; transition: all 0.3s; display: flex; align-items: center; justify-content: center; gap: 8px; }
-                #ai-helper-submit-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(56,239,125,0.4); }
-                #ai-helper-submit-btn:disabled { background: #ccc; cursor: not-allowed; transform: none; box-shadow: none; }
-                #ai-helper-result { padding: 16px; background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 12px; min-height: 80px; max-height: 250px; overflow-y: auto; white-space: pre-wrap; word-wrap: break-word; font-size: 14px; line-height: 1.6; border: 2px solid #e9ecef; }
-                #ai-helper-result::-webkit-scrollbar { width: 6px; }
-                #ai-helper-result::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 3px; }
-                #ai-helper-result::-webkit-scrollbar-thumb { background: #38ef7d; border-radius: 3px; }
-                #ai-key-warning { color: #856404; font-size: 13px; padding: 12px; background: #fff3cd; border-radius: 8px; display: flex; align-items: center; gap: 8px; border-left: 4px solid #ffc107; }
-                .ai-thinking { display: flex; align-items: center; gap: 12px; color: #11998e; }
-                .ai-thinking-dot { display: flex; gap: 4px; }
-                .ai-thinking-dot span { width: 8px; height: 8px; background: #11998e; border-radius: 50%; animation: bounce 1.4s infinite ease-in-out both; }
-                .ai-thinking-dot span:nth-child(1) { animation-delay: -0.32s; }
-                .ai-thinking-dot span:nth-child(2) { animation-delay: -0.16s; }
-                @keyframes bounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
-                .ai-result-label { font-size: 13px; color: #666; margin-bottom: 8px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+                /* AI Helper Panel - Fluent Design */
+                #ai-helper-panel {
+                    position: fixed;
+                    bottom: 20px;
+                    right: 420px;
+                    width: 400px;
+                    max-width: 90vw;
+                    background: #FFFFFF;
+                    border-radius: 8px;
+                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08);
+                    z-index: 99999;
+                    font-family: 'Segoe UI Variable', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+                    display: flex;
+                    flex-direction: column;
+                    overflow: hidden;
+                    transition: all 0.2s ease;
+                    border: 1px solid rgba(0, 0, 0, 0.06);
+                }
+                
+                #ai-helper-panel:hover {
+                    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.16), 0 4px 12px rgba(0, 0, 0, 0.1);
+                }
+                
+                #ai-helper-header {
+                    padding: 14px 20px;
+                    background: #F3F2F1;
+                    color: #323130;
+                    font-weight: 600;
+                    cursor: move;
+                    user-select: none;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+                }
+                
+                #ai-helper-header h3 {
+                    margin: 0;
+                    font-size: 14px;
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                    letter-spacing: -0.01em;
+                }
+                
+                #ai-helper-close-btn {
+                    background: transparent;
+                    border: none;
+                    color: #605E5C;
+                    font-size: 18px;
+                    cursor: pointer;
+                    padding: 4px 12px;
+                    border-radius: 4px;
+                    transition: all 0.15s ease;
+                    line-height: 1;
+                }
+                
+                #ai-helper-close-btn:hover {
+                    background: rgba(0, 0, 0, 0.05);
+                    color: #323130;
+                }
+                
+                #ai-helper-content {
+                    padding: 20px;
+                    background: #FFFFFF;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 16px;
+                }
+                
+                #ai-helper-textarea {
+                    width: 100%;
+                    box-sizing: border-box;
+                    height: 120px;
+                    padding: 12px;
+                    border: 1px solid #E1DFDD;
+                    border-radius: 4px;
+                    resize: vertical;
+                    font-size: 14px;
+                    transition: all 0.15s ease;
+                    font-family: inherit;
+                    color: #323130;
+                    line-height: 1.5;
+                }
+                
+                #ai-helper-textarea:focus {
+                    outline: none;
+                    border-color: #0078D4;
+                    box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.2);
+                }
+                
+                #ai-helper-textarea::placeholder {
+                    color: #A19F9D;
+                }
+                
+                #ai-helper-submit-btn {
+                    padding: 12px 24px;
+                    background: #0078D4;
+                    color: #FFFFFF;
+                    border: none;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    font-size: 14px;
+                    font-weight: 600;
+                    transition: all 0.15s ease;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 8px;
+                    font-family: inherit;
+                    letter-spacing: 0.01em;
+                }
+                
+                #ai-helper-submit-btn:hover {
+                    background: #106EBE;
+                    transform: translateY(-1px);
+                }
+                
+                #ai-helper-submit-btn:active {
+                    transform: translateY(0);
+                }
+                
+                #ai-helper-submit-btn:disabled {
+                    background: #E1DFDD;
+                    color: #A19F9D;
+                    cursor: not-allowed;
+                    transform: none;
+                }
+                
+                #ai-helper-result {
+                    padding: 14px;
+                    background: #F3F2F1;
+                    border-radius: 4px;
+                    min-height: 80px;
+                    max-height: 250px;
+                    overflow-y: auto;
+                    white-space: pre-wrap;
+                    word-wrap: break-word;
+                    font-size: 13px;
+                    line-height: 1.6;
+                    border: 1px solid rgba(0, 0, 0, 0.04);
+                }
+                
+                #ai-helper-result::-webkit-scrollbar {
+                    width: 8px;
+                }
+                
+                #ai-helper-result::-webkit-scrollbar-track {
+                    background: #F3F2F1;
+                }
+                
+                #ai-helper-result::-webkit-scrollbar-thumb {
+                    background: #C8C8C8;
+                    border-radius: 4px;
+                }
+                
+                #ai-helper-result::-webkit-scrollbar-thumb:hover {
+                    background: #A8A8A8;
+                }
+                
+                #ai-key-warning {
+                    color: #8A6914;
+                    font-size: 13px;
+                    padding: 12px;
+                    background: #FFF4CE;
+                    border-radius: 4px;
+                    display: flex;
+                    align-items: flex-start;
+                    gap: 8px;
+                    border: 1px solid #FCEFC4;
+                    line-height: 1.5;
+                }
+                
+                .ai-thinking {
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                    color: #0078D4;
+                }
+                
+                .ai-thinking-dot {
+                    display: flex;
+                    gap: 4px;
+                }
+                
+                .ai-thinking-dot span {
+                    width: 8px;
+                    height: 8px;
+                    background: #0078D4;
+                    border-radius: 50%;
+                    animation: fluentBounce 1.4s infinite ease-in-out both;
+                }
+                
+                .ai-thinking-dot span:nth-child(1) {
+                    animation-delay: -0.32s;
+                }
+                
+                .ai-thinking-dot span:nth-child(2) {
+                    animation-delay: -0.16s;
+                }
+                
+                @keyframes fluentBounce {
+                    0%, 80%, 100% {
+                        transform: scale(0);
+                    }
+                    40% {
+                        transform: scale(1);
+                    }
+                }
+                
+                .ai-result-label {
+                    font-size: 12px;
+                    color: #605E5C;
+                    margin-bottom: 8px;
+                    font-weight: 600;
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    text-transform: uppercase;
+                    letter-spacing: 0.02em;
+                }
             `);
             
             const panel = document.createElement('div');
@@ -1254,7 +1878,7 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
      * 允许在不重新加载页面的情况下动态调整倍速
      */
     function applyCurrentVideoSpeed() {
-        const targetRate = GM_getValue('sclpa_playback_rate', 16.0);
+        const targetRate = GM_getValue('sclpa_playback_rate', 1.0);
 
         CONFIG.VIDEO_PLAYBACK_RATE = targetRate;
         currentPlaybackRate = targetRate;
@@ -1288,6 +1912,11 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
             }
         });
 
+        if (isTimeAccelerated) {
+            console.log(`[Script] 重新初始化增强版倍速引擎，倍速: ${targetRate}x`);
+            initializeEnhancedVideoSpeedEngine();
+        }
+
         const speedDisplay = document.getElementById('speed-display');
         if (speedDisplay) {
             speedDisplay.textContent = `${targetRate}x`;
@@ -1302,7 +1931,6 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
      * 增强功能：防止视频暂停、自动恢复播放、多重防护
      */
     function initializeEnhancedVideoSpeedEngine() {
-        if (CONFIG.VIDEO_PLAYBACK_RATE <= 1) return;
         console.log(`[Script] Enhanced HTML5 Video Speed Engine v2 started, rate: ${CONFIG.VIDEO_PLAYBACK_RATE}x`);
 
         const targetRate = CONFIG.VIDEO_PLAYBACK_RATE;
@@ -1310,7 +1938,7 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
 
         function applyVideoSpeed(video) {
             if (!video || video.nodeType !== Node.ELEMENT_NODE) return;
-
+            
             const currentRate = video.playbackRate;
             if (Math.abs(currentRate - targetRate) > 0.01) {
                 try {
@@ -1465,14 +2093,124 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
      * [Time Engine] Global time acceleration, including setTimeout, setInterval, and requestAnimationFrame
      */
     function accelerateTime() {
-        if (CONFIG.TIME_ACCELERATION_RATE <= 1) return;
         console.log(`[Script] Time acceleration engine started, rate: ${CONFIG.TIME_ACCELERATION_RATE}x`);
 
         const rate = CONFIG.TIME_ACCELERATION_RATE;
+        const percentage = 1 / rate;
+
+        let scriptStartTime = Date.now();
+        let lastDateTime = scriptStartTime;
+        let lastModifiedTime = scriptStartTime;
+
+        const DateOrigin = window.Date;
+        let DateModified = window.Date;
+
+        const trackedIntervals = new Map();
+        const trackedTimeouts = new Map();
+
+        let timerIdCounter = 0;
 
         try {
-            hook(window, 'setTimeout', (original) => (cb, delay, ...args) => original.call(window, cb, delay / rate, ...args));
-            hook(window, 'setInterval', (original) => (cb, delay, ...args) => original.call(window, cb, delay / rate, ...args));
+            const setTimeoutOrigin = window.setTimeout;
+            const setIntervalOrigin = window.setInterval;
+            const clearTimeoutOrigin = window.clearTimeout;
+            const clearIntervalOrigin = window.clearInterval;
+
+            window.setTimeout = function(callback, delay, ...args) {
+                if (typeof delay !== 'number' || delay <= 0) {
+                    return setTimeoutOrigin.call(window, callback, delay, ...args);
+                }
+
+                const originalDelay = delay;
+                const hookedDelay = Math.floor(originalDelay * percentage);
+                const timerId = setTimeoutOrigin.call(window, function() {
+                    trackedTimeouts.delete(timerId);
+                    if (typeof callback === 'function') {
+                        callback.apply(this, arguments);
+                    } else if (typeof callback === 'string') {
+                        eval(callback);
+                    }
+                }, hookedDelay, ...args);
+
+                trackedTimeouts.set(timerId, {
+                    args: [callback, originalDelay, ...args],
+                    originDelay: originalDelay,
+                    hookedDelay: hookedDelay
+                });
+
+                return timerId;
+            };
+
+            window.setInterval = function(callback, delay, ...args) {
+                if (typeof delay !== 'number' || delay <= 0) {
+                    return setIntervalOrigin.call(window, callback, delay, ...args);
+                }
+
+                const originalDelay = delay;
+                const hookedDelay = Math.floor(originalDelay * percentage);
+                const intervalId = setIntervalOrigin.call(window, callback, hookedDelay, ...args);
+
+                trackedIntervals.set(intervalId, {
+                    args: [callback, originalDelay, ...args],
+                    originDelay: originalDelay,
+                    hookedDelay: hookedDelay
+                });
+
+                return intervalId;
+            };
+
+            window.clearTimeout = function(timerId) {
+                trackedTimeouts.delete(timerId);
+                return clearTimeoutOrigin.call(window, timerId);
+            };
+
+            window.clearInterval = function(intervalId) {
+                trackedIntervals.delete(intervalId);
+                return clearIntervalOrigin.call(window, intervalId);
+            };
+
+            window.Date = function(...args) {
+                if (args.length === 0) {
+                    const now = DateOrigin.now();
+                    const delta = now - lastDateTime;
+                    const adjustedDelta = delta * rate;
+                    const newTime = lastModifiedTime + adjustedDelta;
+                    lastModifiedTime = newTime;
+                    lastDateTime = now;
+                    return new Date(newTime);
+                } else if (args.length === 1 && typeof args[0] === 'number') {
+                    return new DateOrigin(args[0]);
+                } else {
+                    return new (Function.prototype.bind.apply(DateOrigin, [null].concat(args)))();
+                }
+            };
+
+            window.Date.prototype = DateOrigin.prototype;
+            window.Date.now = function() {
+                const now = DateOrigin.now();
+                const delta = now - lastDateTime;
+                const adjustedDelta = delta * rate;
+                const newTime = lastModifiedTime + adjustedDelta;
+                return Math.floor(newTime);
+            };
+            window.Date.prototype.now = window.Date.now;
+
+            const originalDateToString = DateOrigin.prototype.toString;
+            window.Date.prototype.toString = function() {
+                const now = DateOrigin.now();
+                const delta = now - lastDateTime;
+                const adjustedDelta = delta * rate;
+                const newTime = lastModifiedTime + adjustedDelta;
+                const fakeDate = new DateOrigin(newTime);
+                return originalDateToString.call(fakeDate);
+            };
+
+            window.Date.prototype.getTime = function() {
+                const now = DateOrigin.now();
+                const delta = now - lastDateTime;
+                const adjustedDelta = delta * rate;
+                return lastModifiedTime + adjustedDelta;
+            };
 
             hook(window, 'requestAnimationFrame', (original) => {
                 let firstTimestamp = -1;
@@ -1485,10 +2223,7 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
                 };
             });
 
-            hook(Date, 'now', (original) => {
-                const scriptStartTime = original();
-                return () => scriptStartTime + (original() - scriptStartTime) * rate;
-            });
+            console.log(`[Script] Time acceleration hooks applied successfully (rate: ${rate}x)`);
         } catch (e) {
             console.error('[Script Error] Failed to apply time acceleration hooks:', e);
         }

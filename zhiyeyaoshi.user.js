@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         四川省执业药师继续教育
 // @namespace    http://tampermonkey.net/
-// @version      1.3.1
-// @description  【v1.3.1 | 优化】四川职业药师继续教育;增强HTML5视频倍速支持，添加多种防护机制，确保倍速稳定生效
+// @version      1.3.2
+// @description  【v1.3.2 | 优化】四川职业药师继续教育;优化倍速调整体验，无需重新加载页面；增强视频防护机制，防止被暂停
 // @author       Coren
 // @match        https://www.sclpa.cn/*
 // @match        https://zyys.ihehang.com/*
@@ -432,8 +432,11 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
                 speedSlider.addEventListener('change', () => {
                     const newRate = parseFloat(speedSlider.value);
                     GM_setValue('sclpa_playback_rate', newRate);
-                    console.log(`[Script] Playback speed set to: ${newRate}x. Refreshing page to apply...`);
-                    window.location.reload();
+                    console.log(`[Script] 播放倍速设置为: ${newRate}x，立即应用到所有视频...`);
+                    applyCurrentVideoSpeed();
+                    setTimeout(() => {
+                        alert(`✅ 播放倍速已更新为 ${newRate}x，并立即应用到当前页面！\n\n💡 如需在其他页面生效，刷新页面即可。`);
+                    }, 100);
                 });
             }
 
@@ -1247,14 +1250,63 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
     // ===================================================================================
 
     /**
-     * [增强版视频倍速引擎] 专门针对HTML5视频播放器的高强度倍速控制
-     * 参考time-hooker的VideoSpeedModule实现
+     * [动态倍速应用器] 立即将当前配置的倍速应用到所有视频
+     * 允许在不重新加载页面的情况下动态调整倍速
+     */
+    function applyCurrentVideoSpeed() {
+        const targetRate = GM_getValue('sclpa_playback_rate', 16.0);
+
+        CONFIG.VIDEO_PLAYBACK_RATE = targetRate;
+        currentPlaybackRate = targetRate;
+
+        function applyToVideo(video) {
+            if (!video || video.nodeType !== Node.ELEMENT_NODE) return;
+
+            const currentRate = video.playbackRate;
+            if (Math.abs(currentRate - targetRate) > 0.01) {
+                try {
+                    video.playbackRate = targetRate;
+                    console.log(`[Script] 动态应用倍速: ${targetRate}x (从 ${currentRate}x 调整)`);
+                } catch (e) {
+                    console.warn('[Script] 应用倍速失败:', e);
+                }
+            }
+        }
+
+        document.querySelectorAll('video').forEach(video => applyToVideo(video));
+
+        try {
+            document.querySelectorAll('iframe').forEach(iframe => {
+                iframe.contentDocument?.querySelectorAll('video').forEach(video => applyToVideo(video));
+            });
+        } catch (e) {
+        }
+
+        document.querySelectorAll('*').forEach(el => {
+            if (el.shadowRoot) {
+                el.shadowRoot.querySelectorAll('video').forEach(video => applyToVideo(video));
+            }
+        });
+
+        const speedDisplay = document.getElementById('speed-display');
+        if (speedDisplay) {
+            speedDisplay.textContent = `${targetRate}x`;
+        }
+
+        console.log(`[Script] 动态倍速应用完成: ${targetRate}x`);
+    }
+
+    /**
+     * [增强版视频倍速引擎 v2] 专门针对HTML5视频播放器的高强度倍速控制
+     * 参考time.user.js和time-hooker的VideoSpeedModule实现
+     * 增强功能：防止视频暂停、自动恢复播放、多重防护
      */
     function initializeEnhancedVideoSpeedEngine() {
         if (CONFIG.VIDEO_PLAYBACK_RATE <= 1) return;
-        console.log(`[Script] Enhanced HTML5 Video Speed Engine started, rate: ${CONFIG.VIDEO_PLAYBACK_RATE}x`);
+        console.log(`[Script] Enhanced HTML5 Video Speed Engine v2 started, rate: ${CONFIG.VIDEO_PLAYBACK_RATE}x`);
 
         const targetRate = CONFIG.VIDEO_PLAYBACK_RATE;
+        const monitoredVideos = new WeakSet();
 
         function applyVideoSpeed(video) {
             if (!video || video.nodeType !== Node.ELEMENT_NODE) return;
@@ -1263,47 +1315,116 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
             if (Math.abs(currentRate - targetRate) > 0.01) {
                 try {
                     video.playbackRate = targetRate;
-                    console.log(`[Script] Video speed applied: ${targetRate}x (was ${currentRate}x)`);
+                    console.log(`[Script] 增强倍速已应用: ${targetRate}x (原倍速: ${currentRate}x)`);
                 } catch (e) {
-                    console.warn('[Script] Failed to set video playbackRate:', e);
+                    console.warn('[Script] 应用倍速失败:', e);
                 }
             }
         }
 
-        function scanAndApplySpeed() {
-            const videos = document.querySelectorAll('video');
-            videos.forEach(video => {
+        function applySpeedToAllVideos() {
+            document.querySelectorAll('video').forEach(video => {
                 applyVideoSpeed(video);
-            });
-
-            const iframes = document.querySelectorAll('iframe');
-            iframes.forEach(iframe => {
-                try {
-                    const iframeVideos = iframe.contentDocument?.querySelectorAll('video');
-                    iframeVideos?.forEach(video => applyVideoSpeed(video));
-                } catch (e) {
+                if (!monitoredVideos.has(video)) {
+                    monitoredVideos.add(video);
+                    enhanceVideoMonitoring(video);
                 }
             });
 
+            try {
+                document.querySelectorAll('iframe').forEach(iframe => {
+                    iframe.contentDocument?.querySelectorAll('video').forEach(video => {
+                        applyVideoSpeed(video);
+                        if (!monitoredVideos.has(video)) {
+                            monitoredVideos.add(video);
+                            enhanceVideoMonitoring(video);
+                        }
+                    });
+                });
+            } catch (e) {
+            }
+
             document.querySelectorAll('*').forEach(el => {
                 if (el.shadowRoot) {
-                    const shadowVideos = el.shadowRoot.querySelectorAll('video');
-                    shadowVideos.forEach(video => applyVideoSpeed(video));
+                    el.shadowRoot.querySelectorAll('video').forEach(video => {
+                        applyVideoSpeed(video);
+                        if (!monitoredVideos.has(video)) {
+                            monitoredVideos.add(video);
+                            enhanceVideoMonitoring(video);
+                        }
+                    });
                 }
             });
         }
 
-        scanAndApplySpeed();
+        function enhanceVideoMonitoring(video) {
+            if (!video) return;
+
+            const descriptor = Object.getOwnPropertyDescriptor(HTMLVideoElement.prototype, 'playbackRate');
+            if (descriptor && descriptor.set) {
+                const originalSetter = descriptor.set;
+                Object.defineProperty(video, 'playbackRate', {
+                    get: function() {
+                        return originalSetter.call(this);
+                    },
+                    set: function(value) {
+                        if (Math.abs(value - targetRate) > 0.01) {
+                            console.log(`[Script] 拦截playbackRate设置: ${value} → ${targetRate}`);
+                            return originalSetter.call(this, targetRate);
+                        }
+                        return originalSetter.call(this, value);
+                    },
+                    configurable: true,
+                    enumerable: true
+                });
+            }
+
+            hook(video, 'play', (original) => async function(...args) {
+                const result = original.apply(this, args);
+                setTimeout(() => {
+                    applyVideoSpeed(this);
+                    if (this.paused && !document.hidden) {
+                        this.play().catch(() => {});
+                    }
+                }, 50);
+                return result;
+            });
+
+            hook(video, 'pause', (original) => function(...args) {
+                if (!document.hidden) {
+                    console.log('[Script] 拦截视频暂停，保持播放状态');
+                    return;
+                }
+                return original.apply(this, args);
+            });
+
+            video.addEventListener('ratechange', () => {
+                if (Math.abs(video.playbackRate - targetRate) > 0.01) {
+                    console.log('[Script] 检测到倍速变化，正在恢复...');
+                    setTimeout(() => applyVideoSpeed(video), 10);
+                }
+            });
+
+            video.addEventListener('loadedmetadata', () => {
+                setTimeout(() => applyVideoSpeed(video), 100);
+            });
+        }
+
+        applySpeedToAllVideos();
 
         const observer = new MutationObserver((mutations) => {
             let shouldScan = false;
             mutations.forEach(mutation => {
                 if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
-                    shouldScan = true;
+                    mutation.addedNodes.forEach(node => {
+                        if (node.nodeName === 'VIDEO' || (node.querySelectorAll && node.querySelectorAll('video').length > 0)) {
+                            shouldScan = true;
+                        }
+                    });
                 }
             });
             if (shouldScan) {
-                setTimeout(scanAndApplySpeed, 100);
+                setTimeout(applySpeedToAllVideos, 100);
             }
         });
 
@@ -1312,36 +1433,32 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
             subtree: true
         });
 
-        hook(HTMLVideoElement.prototype, 'play', (original) => async function(...args) {
-            const result = original.apply(this, args);
-            setTimeout(() => applyVideoSpeed(this), 50);
-            return result;
-        });
-
         hook(Object, 'defineProperty', (original) => function(target, property, descriptor) {
             if (target instanceof HTMLMediaElement && property === 'playbackRate') {
-                console.log('[Script] Intercepted attempt to lock video playbackRate, restoring our rate.');
+                console.log('[Script] 拦截defineProperty锁定playbackRate');
                 descriptor.value = targetRate;
+                descriptor.writable = true;
             }
             return original.apply(this, arguments);
         });
 
         hook(HTMLMediaElement.prototype, 'setAttribute', (original) => function(name, value) {
             if (this instanceof HTMLVideoElement && name.toLowerCase() === 'playbackrate') {
-                console.log('[Script] Intercepted setAttribute for playbackRate, ignoring.');
+                console.log('[Script] 拦截setAttribute设置playbackRate');
                 return;
             }
             return original.apply(this, arguments);
         });
 
-        setInterval(scanAndApplySpeed, 1000);
-        console.log('[Script] Video speed monitor started with 1s interval.');
+        setInterval(applySpeedToAllVideos, 1000);
 
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', () => {
-                setTimeout(scanAndApplySpeed, 500);
+                setTimeout(applySpeedToAllVideos, 500);
             });
         }
+
+        console.log('[Script] 增强版视频倍速引擎 v2 已启动，多重防护机制已激活');
     }
 
     /**

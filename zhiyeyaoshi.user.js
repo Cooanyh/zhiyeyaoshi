@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         四川省执业药师继续教育
 // @namespace    http://tampermonkey.net/
-// @version      1.3.0
-// @description  【v1.3.0 | 优化】四川职业药师继续教育;全新现代化GUI界面，新增教程标签页，提升用户体验
+// @version      1.3.1
+// @description  【v1.3.1 | 优化】四川职业药师继续教育;增强HTML5视频倍速支持，添加多种防护机制，确保倍速稳定生效
 // @author       Coren
 // @match        https://www.sclpa.cn/*
 // @match        https://zyys.ihehang.com/*
@@ -333,6 +333,17 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
                                     <li><strong>公需课-视频：</strong>自动播放视频，支持静音倍速</li>
                                     <li><strong>公需课-文章：</strong>自动计时，标记已读状态</li>
                                     <li><strong>考试：</strong>AI自动答题（需配置API Key）</li>
+                                </ul>
+                            </div>
+
+                            <div class="tutorial-section">
+                                <h4>🎬 视频倍速技术</h4>
+                                <ul>
+                                    <li><strong>增强倍速引擎：</strong>采用多重防护机制，确保倍速稳定生效</li>
+                                    <li><strong>自动检测：</strong>支持主文档、iframe和Shadow DOM中的视频</li>
+                                    <li><strong>实时监控：</strong>每秒检查并修正倍速设置</li>
+                                    <li><strong>防护机制：</strong>阻止网页重置playbackRate属性</li>
+                                    <li><strong>智能重试：</strong>自动适应视频加载和切换场景</li>
                                 </ul>
                             </div>
                             
@@ -821,6 +832,7 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
         console.log('[Script] handleLearningPage called.');
         if (!isTimeAccelerated) {
             accelerateTime();
+            initializeEnhancedVideoSpeedEngine();
             isTimeAccelerated = true;
         }
 
@@ -1233,6 +1245,104 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
     // ===================================================================================
     // --- 核心自动化 (Core Automation) ---
     // ===================================================================================
+
+    /**
+     * [增强版视频倍速引擎] 专门针对HTML5视频播放器的高强度倍速控制
+     * 参考time-hooker的VideoSpeedModule实现
+     */
+    function initializeEnhancedVideoSpeedEngine() {
+        if (CONFIG.VIDEO_PLAYBACK_RATE <= 1) return;
+        console.log(`[Script] Enhanced HTML5 Video Speed Engine started, rate: ${CONFIG.VIDEO_PLAYBACK_RATE}x`);
+
+        const targetRate = CONFIG.VIDEO_PLAYBACK_RATE;
+
+        function applyVideoSpeed(video) {
+            if (!video || video.nodeType !== Node.ELEMENT_NODE) return;
+
+            const currentRate = video.playbackRate;
+            if (Math.abs(currentRate - targetRate) > 0.01) {
+                try {
+                    video.playbackRate = targetRate;
+                    console.log(`[Script] Video speed applied: ${targetRate}x (was ${currentRate}x)`);
+                } catch (e) {
+                    console.warn('[Script] Failed to set video playbackRate:', e);
+                }
+            }
+        }
+
+        function scanAndApplySpeed() {
+            const videos = document.querySelectorAll('video');
+            videos.forEach(video => {
+                applyVideoSpeed(video);
+            });
+
+            const iframes = document.querySelectorAll('iframe');
+            iframes.forEach(iframe => {
+                try {
+                    const iframeVideos = iframe.contentDocument?.querySelectorAll('video');
+                    iframeVideos?.forEach(video => applyVideoSpeed(video));
+                } catch (e) {
+                }
+            });
+
+            document.querySelectorAll('*').forEach(el => {
+                if (el.shadowRoot) {
+                    const shadowVideos = el.shadowRoot.querySelectorAll('video');
+                    shadowVideos.forEach(video => applyVideoSpeed(video));
+                }
+            });
+        }
+
+        scanAndApplySpeed();
+
+        const observer = new MutationObserver((mutations) => {
+            let shouldScan = false;
+            mutations.forEach(mutation => {
+                if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+                    shouldScan = true;
+                }
+            });
+            if (shouldScan) {
+                setTimeout(scanAndApplySpeed, 100);
+            }
+        });
+
+        observer.observe(document.body || document.documentElement, {
+            childList: true,
+            subtree: true
+        });
+
+        hook(HTMLVideoElement.prototype, 'play', (original) => async function(...args) {
+            const result = original.apply(this, args);
+            setTimeout(() => applyVideoSpeed(this), 50);
+            return result;
+        });
+
+        hook(Object, 'defineProperty', (original) => function(target, property, descriptor) {
+            if (target instanceof HTMLMediaElement && property === 'playbackRate') {
+                console.log('[Script] Intercepted attempt to lock video playbackRate, restoring our rate.');
+                descriptor.value = targetRate;
+            }
+            return original.apply(this, arguments);
+        });
+
+        hook(HTMLMediaElement.prototype, 'setAttribute', (original) => function(name, value) {
+            if (this instanceof HTMLVideoElement && name.toLowerCase() === 'playbackrate') {
+                console.log('[Script] Intercepted setAttribute for playbackRate, ignoring.');
+                return;
+            }
+            return original.apply(this, arguments);
+        });
+
+        setInterval(scanAndApplySpeed, 1000);
+        console.log('[Script] Video speed monitor started with 1s interval.');
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => {
+                setTimeout(scanAndApplySpeed, 500);
+            });
+        }
+    }
 
     /**
      * [Time Engine] Global time acceleration, including setTimeout, setInterval, and requestAnimationFrame

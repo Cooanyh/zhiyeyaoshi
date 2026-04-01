@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         四川省执业药师继续教育
 // @namespace    http://tampermonkey.net/
-// @version      1.2.13
-// @description  【v1.2.13 | 优化】四川职业药师继续教育;更新了部分描述，自该版本起更新了协议
+// @version      1.3.0
+// @description  【v1.3.0 | 优化】四川职业药师继续教育;全新现代化GUI界面，新增教程标签页，提升用户体验
 // @author       Coren
 // @match        https://www.sclpa.cn/*
 // @match        https://zyys.ihehang.com/*
@@ -121,7 +121,7 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
     // ===================================================================================
 
     /**
-     * Create the script control panel (mode switching, navigation, etc.)
+     * Create the modern script control panel with tabs
      */
     function createModeSwitcherPanel() {
         if (isModePanelCreated) {
@@ -129,96 +129,275 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
             return;
         }
         isModePanelCreated = true;
-        console.log('[Script] Attempting to create Mode Switcher Panel...');
+        console.log('[Script] Attempting to create Modern Mode Switcher Panel...');
 
         try {
             GM_addStyle(`
-                #mode-switcher-panel { position: fixed; bottom: 20px; right: 20px; width: 220px; background-color: #fff; border: 1px solid #007bff; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.15); z-index: 10000; overflow: hidden; font-family: 'Microsoft YaHei', sans-serif; }
-                #mode-switcher-header { padding: 8px 12px; background-color: #007bff; color: white; cursor: move; user-select: none; display: flex; justify-content: space-between; align-items: center; }
-                #mode-switcher-toggle-collapse { background: none; border: none; color: white; font-size: 18px; cursor: pointer; }
-                #mode-switcher-content { padding: 15px; border-top: 1px solid #007bff; display: flex; flex-direction: column; align-items: center; gap: 10px; max-height: 500px; overflow: hidden; transition: max-height 0.3s ease-in-out, padding 0.3s ease-in-out; }
-                #mode-switcher-panel.collapsed #mode-switcher-content { max-height: 0; padding-top: 0; padding-bottom: 0; }
-                .panel-btn { padding: 8px 16px; font-size: 14px; color: white; border: none; border-radius: 5px; cursor: pointer; transition: background-color 0.3s; min-width: 120px; width: 100%; box-sizing: border-box; }
-                .service-btn-active { background-color: #28a745; }
-                .service-btn-paused { background-color: #dc3545; }
-                .nav-btn { padding: 5px 10px; font-size: 12px; color: #007bff; background-color: #fff; border: 1px solid #007bff; border-radius: 5px; cursor: pointer; transition: all 0.3s; width: 100%; }
-                .nav-btn:hover { background-color: #007bff; color: #fff; }
-                .panel-divider { width: 100%; height: 1px; background-color: #eee; margin: 5px 0; }
-                .setting-row { display: flex; flex-direction: column; width: 100%; align-items: center; }
-                .setting-row > label { margin-bottom: 5px; font-size: 14px; }
-                .speed-slider-container { display: flex; align-items: center; width: 100%; gap: 10px; }
-                #speed-slider { flex-grow: 1; }
-                #speed-display { font-weight: bold; font-size: 14px; color: #007bff; min-width: 45px; text-align: right; }
-                .api-key-input { width: calc(100% - 20px); padding: 8px; margin-top: 5px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; font-size: 13px; }
-                .api-key-action-btn { background-color: #6c757d; margin-top: 5px; }
-                .api-key-action-btn:hover { background-color: #5a6268; }
+                #mode-switcher-panel { position: fixed; bottom: 20px; right: 20px; width: 380px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); z-index: 10000; overflow: hidden; font-family: 'Microsoft YaHei', -apple-system, sans-serif; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+                #mode-switcher-panel:hover { transform: translateY(-2px); box-shadow: 0 15px 50px rgba(0,0,0,0.25); }
+                #mode-switcher-panel.collapsed { width: 200px; }
+                #mode-switcher-header { padding: 15px 20px; background: rgba(255,255,255,0.15); backdrop-filter: blur(10px); color: white; cursor: move; user-select: none; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1); }
+                #mode-switcher-header h3 { margin: 0; font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+                #mode-switcher-toggle-collapse { background: rgba(255,255,255,0.2); border: none; color: white; font-size: 18px; cursor: pointer; padding: 6px 12px; border-radius: 8px; transition: all 0.3s; }
+                #mode-switcher-toggle-collapse:hover { background: rgba(255,255,255,0.3); transform: scale(1.05); }
+                
+                #mode-switcher-tabs { display: flex; background: rgba(255,255,255,0.1); padding: 10px; gap: 8px; }
+                .tab-btn { flex: 1; padding: 10px 16px; background: rgba(255,255,255,0.1); border: none; color: rgba(255,255,255,0.8); font-size: 14px; cursor: pointer; border-radius: 10px; transition: all 0.3s; font-weight: 500; }
+                .tab-btn:hover { background: rgba(255,255,255,0.2); color: white; }
+                .tab-btn.active { background: white; color: #667eea; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+                
+                #mode-switcher-content { padding: 20px; background: white; max-height: 450px; overflow-y: auto; }
+                #mode-switcher-content::-webkit-scrollbar { width: 6px; }
+                #mode-switcher-content::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 3px; }
+                #mode-switcher-content::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 3px; }
+                #mode-switcher-content::-webkit-scrollbar-thumb:hover { background: #a1a1a1; }
+                
+                .tab-content { display: none; animation: fadeIn 0.3s ease; }
+                .tab-content.active { display: block; }
+                @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+                
+                .panel-section { margin-bottom: 20px; }
+                .section-title { font-size: 14px; color: #666; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+                .section-title::before { content: ''; width: 4px; height: 16px; background: linear-gradient(180deg, #667eea 0%, #764ba2 100%); border-radius: 2px; }
+                
+                .status-indicator { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 16px; background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 12px; margin-bottom: 16px; }
+                .status-dot { width: 12px; height: 12px; border-radius: 50%; animation: pulse 2s infinite; }
+                .status-dot.active { background: #28a745; box-shadow: 0 0 10px rgba(40,167,69,0.5); }
+                .status-dot.paused { background: #dc3545; box-shadow: 0 0 10px rgba(220,53,69,0.5); animation: none; }
+                @keyframes pulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.2); opacity: 0.7; } }
+                
+                .panel-btn { padding: 12px 20px; font-size: 14px; color: white; border: none; border-radius: 10px; cursor: pointer; transition: all 0.3s; width: 100%; box-sizing: border-box; font-weight: 600; }
+                .panel-btn:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.2); }
+                .panel-btn:active { transform: translateY(0); }
+                .service-btn-active { background: linear-gradient(135deg, #28a745 0%, #20c997 100%); }
+                .service-btn-paused { background: linear-gradient(135deg, #dc3545 0%, #c82333 100%); }
+                
+                .nav-btn { padding: 12px 16px; font-size: 13px; color: #667eea; background: white; border: 2px solid #e9ecef; border-radius: 10px; cursor: pointer; transition: all 0.3s; width: 100%; margin-bottom: 8px; font-weight: 500; display: flex; align-items: center; gap: 10px; }
+                .nav-btn:last-child { margin-bottom: 0; }
+                .nav-btn:hover { border-color: #667eea; background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); transform: translateX(5px); }
+                .nav-btn-icon { font-size: 18px; }
+                .nav-btn-text { flex: 1; text-align: left; }
+                .nav-btn-arrow { opacity: 0; transition: all 0.3s; }
+                .nav-btn:hover .nav-btn-arrow { opacity: 1; }
+                
+                .setting-row { margin-bottom: 16px; }
+                .setting-row:last-child { margin-bottom: 0; }
+                .setting-row label { display: block; margin-bottom: 8px; font-size: 13px; color: #495057; font-weight: 600; }
+                
+                .speed-slider-container { display: flex; align-items: center; gap: 12px; background: #f8f9fa; padding: 12px; border-radius: 10px; }
+                .speed-slider-container input[type="range"] { flex: 1; height: 6px; border-radius: 3px; background: #e9ecef; outline: none; -webkit-appearance: none; }
+                .speed-slider-container input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px; border-radius: 50%; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.2); }
+                #speed-display { font-weight: bold; font-size: 16px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; min-width: 50px; text-align: center; }
+                
+                .api-key-input { width: 100%; padding: 12px; border: 2px solid #e9ecef; border-radius: 10px; box-sizing: border-box; font-size: 13px; transition: all 0.3s; }
+                .api-key-input:focus { outline: none; border-color: #667eea; box-shadow: 0 0 0 3px rgba(102,126,234,0.1); }
+                .api-key-status { margin-top: 8px; font-size: 12px; padding: 8px 12px; border-radius: 8px; display: flex; align-items: center; gap: 6px; }
+                .api-key-status.configured { background: #d4edda; color: #155724; }
+                .api-key-status.not-configured { background: #fff3cd; color: #856404; }
+                
+                .panel-divider { width: 100%; height: 1px; background: linear-gradient(90deg, transparent, #e9ecef, transparent); margin: 20px 0; }
+                
+                .nav-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+                .nav-grid .nav-btn { margin-bottom: 0; }
+                
+                .tutorial-content { background: #f8f9fa; padding: 16px; border-radius: 12px; }
+                .tutorial-section { margin-bottom: 20px; }
+                .tutorial-section:last-child { margin-bottom: 0; }
+                .tutorial-section h4 { font-size: 14px; color: #667eea; margin: 0 0 10px 0; display: flex; align-items: center; gap: 8px; }
+                .tutorial-section ul { margin: 0; padding-left: 20px; color: #495057; font-size: 13px; line-height: 1.8; }
+                .tutorial-section li { margin-bottom: 6px; }
+                .tutorial-section li::marker { color: #667eea; }
+                .tutorial-warning { background: #fff3cd; border-left: 4px solid #ffc107; padding: 12px; border-radius: 8px; margin-top: 16px; }
+                .tutorial-warning strong { color: #856404; }
+                .tutorial-link { color: #667eea; text-decoration: none; font-weight: 600; }
+                .tutorial-link:hover { text-decoration: underline; }
+                
+                #mode-switcher-panel.collapsed #mode-switcher-tabs,
+                #mode-switcher-panel.collapsed #mode-switcher-content { display: none; }
             `);
 
             const panel = document.createElement('div');
             panel.id = 'mode-switcher-panel';
             panel.innerHTML = `
                 <div id="mode-switcher-header">
-                    <span>控制面板</span>
+                    <h3>✨ 控制面板</h3>
                     <button id="mode-switcher-toggle-collapse">－</button>
                 </div>
+                <div id="mode-switcher-tabs">
+                    <button class="tab-btn active" data-tab="control">🎮 控制</button>
+                    <button class="tab-btn" data-tab="settings">⚙️ 设置</button>
+                    <button class="tab-btn" data-tab="tutorial">📖 教程</button>
+                </div>
                 <div id="mode-switcher-content">
-                    <div class="setting-row">
-                        <label>点击开启/关闭服务:</label>
+                    <!-- 控制面板 -->
+                    <div class="tab-content active" id="tab-control">
+                        <div class="status-indicator">
+                            <div class="status-dot" id="status-dot"></div>
+                            <span id="status-text">服务运行中</span>
+                        </div>
                         <button id="service-toggle-btn" class="panel-btn"></button>
-                    </div>
-                    <div class="panel-divider"></div>
-                    <div class="setting-row">
-                        <label for="speed-slider">倍速设置:</label>
-                        <div class="speed-slider-container">
-                             <input type="range" id="speed-slider" min="1" max="16" step="0.5" value="${currentPlaybackRate}">
-                             <span id="speed-display">x${currentPlaybackRate}</span>
+                        
+                        <div class="panel-divider"></div>
+                        
+                        <div class="panel-section">
+                            <div class="section-title">快速导航</div>
+                            <div class="nav-grid">
+                                <button id="nav-specialized-btn" class="nav-btn">
+                                    <span class="nav-btn-icon">📚</span>
+                                    <span class="nav-btn-text">专业课程</span>
+                                    <span class="nav-btn-arrow">→</span>
+                                </button>
+                                <button id="nav-public-video-btn" class="nav-btn">
+                                    <span class="nav-btn-icon">🎬</span>
+                                    <span class="nav-btn-text">公需课-视频</span>
+                                    <span class="nav-btn-arrow">→</span>
+                                </button>
+                                <button id="nav-public-article-btn" class="nav-btn">
+                                    <span class="nav-btn-icon">📄</span>
+                                    <span class="nav-btn-text">公需课-文章</span>
+                                    <span class="nav-btn-arrow">→</span>
+                                </button>
+                                <button id="nav-specialized-exam-btn" class="nav-btn">
+                                    <span class="nav-btn-icon">✍️</span>
+                                    <span class="nav-btn-text">专业课-考试</span>
+                                    <span class="nav-btn-arrow">→</span>
+                                </button>
+                            </div>
+                            <div style="margin-top: 10px;">
+                                <button id="nav-public-exam-btn" class="nav-btn">
+                                    <span class="nav-btn-icon">📝</span>
+                                    <span class="nav-btn-text">公需课-考试</span>
+                                    <span class="nav-btn-arrow">→</span>
+                                </button>
+                            </div>
                         </div>
                     </div>
-                    <div class="panel-divider"></div>
-                    <div class="setting-row">
-                        <label>AI API Key 设置:</label>
-                        <button id="api-key-setting-btn" class="panel-btn api-key-action-btn">设置 API Key</button>
+                    
+                    <!-- 设置面板 -->
+                    <div class="tab-content" id="tab-settings">
+                        <div class="panel-section">
+                            <div class="section-title">播放设置</div>
+                            <div class="setting-row">
+                                <label for="speed-slider">视频倍速 (1-16x)</label>
+                                <div class="speed-slider-container">
+                                    <input type="range" id="speed-slider" min="1" max="16" step="0.5" value="${currentPlaybackRate}">
+                                    <span id="speed-display">${currentPlaybackRate}x</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="panel-divider"></div>
+                        
+                        <div class="panel-section">
+                            <div class="section-title">AI 设置</div>
+                            <div class="setting-row">
+                                <label for="api-key-input">DeepSeek API Key</label>
+                                <input type="password" id="api-key-input" class="api-key-input" placeholder="请输入您的 API Key" value="">
+                                <div id="api-key-status" class="api-key-status not-configured">
+                                    ⚠️ 未配置 API Key
+                                </div>
+                            </div>
+                            <button id="api-key-save-btn" class="panel-btn" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); margin-top: 12px;">
+                                💾 保存设置
+                            </button>
+                        </div>
                     </div>
-                    <div class="panel-divider"></div>
-                    <div class="setting-row">
-                         <label>快速导航:</label>
-                        <div style="display: flex; flex-direction: column; gap: 5px; width: 100%;">
-                            <button id="nav-specialized-btn" class="nav-btn">专业课程</button>
-                            <button id="nav-public-video-btn" class="nav-btn">公需课-视频</button>
-                            <button id="nav-public-article-btn" class="nav-btn">公需课-文章</button>
-                            <button id="nav-specialized-exam-btn" class="nav-btn">专业课-考试</button>
-                            <button id="nav-public-exam-btn" class="nav-btn">公需课-考试</button>
+                    
+                    <!-- 教程面板 -->
+                    <div class="tab-content" id="tab-tutorial">
+                        <div class="tutorial-content">
+                            <div class="tutorial-section">
+                                <h4>🚀 快速开始</h4>
+                                <ul>
+                                    <li>安装脚本后，屏幕右下角会出现控制面板</li>
+                                    <li>点击相应按钮可快速跳转到不同学习模块</li>
+                                    <li>开启服务后，脚本将自动完成刷课任务</li>
+                                    <li>视频默认16倍速静音播放</li>
+                                </ul>
+                            </div>
+                            
+                            <div class="tutorial-section">
+                                <h4>🤖 AI 助手</h4>
+                                <ul>
+                                    <li>在使用AI答题功能前，需先设置 DeepSeek API Key</li>
+                                    <li>在"设置"标签页中输入您的 API Key 并保存</li>
+                                    <li>获取 API Key：<a href="https://platform.deepseek.com/api_keys" target="_blank" class="tutorial-link">点击此处</a></li>
+                                    <li>AI会自动处理考试题目并选择答案</li>
+                                </ul>
+                            </div>
+                            
+                            <div class="tutorial-section">
+                                <h4>⚡ 功能说明</h4>
+                                <ul>
+                                    <li><strong>专业课程：</strong>自动播放视频课程，支持多章节切换</li>
+                                    <li><strong>公需课-视频：</strong>自动播放视频，支持静音倍速</li>
+                                    <li><strong>公需课-文章：</strong>自动计时，标记已读状态</li>
+                                    <li><strong>考试：</strong>AI自动答题（需配置API Key）</li>
+                                </ul>
+                            </div>
+                            
+                            <div class="tutorial-warning">
+                                <strong>⚠️ 注意事项：</strong>
+                                <ul style="margin-top: 8px; margin-bottom: 0;">
+                                    <li>请保持刷课页面始终处于前台</li>
+                                    <li>不要折叠控制面板</li>
+                                    <li>文章阅读建议配合 TimerHooker 脚本加速</li>
+                                    <li>AI答题不能保证100%正确率</li>
+                                </ul>
+                            </div>
+                            
+                            <div class="tutorial-section">
+                                <h4>📞 获取帮助</h4>
+                                <ul>
+                                    <li>GitHub：<a href="https://github.com/Cooanyh/zhiyeyaoshi" target="_blank" class="tutorial-link">访问项目主页</a></li>
+                                    <li>问题反馈：在 GreasyFork 或 GitHub 提交 Issue</li>
+                                </ul>
+                            </div>
                         </div>
                     </div>
                 </div>
             `;
-            // Append to body. If body is not ready, this might fail.
+            
             if (document.body) {
                 document.body.appendChild(panel);
-                console.log('[Script] Mode Switcher Panel appended to body.');
+                console.log('[Script] Modern Mode Switcher Panel appended to body.');
             } else {
                 console.error('[Script Error] document.body is not available when trying to append Mode Switcher Panel.');
-                isModePanelCreated = false; // Reset flag if append failed
+                isModePanelCreated = false;
                 return;
             }
 
-            // Ensure elements are retrieved AFTER they are appended to the DOM
+            // Tab switching functionality
+            const tabBtns = document.querySelectorAll('.tab-btn');
+            const tabContents = document.querySelectorAll('.tab-content');
+            
+            tabBtns.forEach(btn => {
+                btn.onclick = () => {
+                    const targetTab = btn.dataset.tab;
+                    
+                    tabBtns.forEach(b => b.classList.remove('active'));
+                    tabContents.forEach(c => c.classList.remove('active'));
+                    
+                    btn.classList.add('active');
+                    document.getElementById(`tab-${targetTab}`).classList.add('active');
+                };
+            });
+
+            // Service toggle
             const serviceBtn = document.getElementById('service-toggle-btn');
-            const collapseBtn = document.getElementById('mode-switcher-toggle-collapse');
-            const navSpecializedBtn = document.getElementById('nav-specialized-btn');
-            const navPublicVideoBtn = document.getElementById('nav-public-video-btn');
-            const navPublicArticleBtn = document.getElementById('nav-public-article-btn');
-            const navSpecializedExamBtn = document.getElementById('nav-specialized-exam-btn');
-            const navPublicExamBtn = document.getElementById('nav-public-exam-btn');
-
-            const speedSlider = document.getElementById('speed-slider');
-            const speedDisplay = document.getElementById('speed-display');
-            const apiKeySettingBtn = document.getElementById('api-key-setting-btn');
-
+            const statusDot = document.getElementById('status-dot');
+            const statusText = document.getElementById('status-text');
+            
             const updateServiceButton = (isActive) => {
-                if (serviceBtn) { // Add null check
-                    serviceBtn.innerText = isActive ? '服务运行中' : '服务已暂停';
+                if (serviceBtn) {
+                    serviceBtn.innerText = isActive ? '⏸️ 暂停服务' : '▶️ 启动服务';
                     serviceBtn.className = 'panel-btn ' + (isActive ? 'service-btn-active' : 'service-btn-paused');
+                }
+                if (statusDot) {
+                    statusDot.className = 'status-dot ' + (isActive ? 'active' : 'paused');
+                }
+                if (statusText) {
+                    statusText.innerText = isActive ? '服务运行中' : '服务已暂停';
                 }
             };
             updateServiceButton(isServiceActive);
@@ -229,11 +408,15 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
                     GM_setValue('sclpa_service_active', isServiceActive);
                     window.location.reload();
                 };
-            } else { console.warn('[Script] serviceToggleBtn not found.'); }
+            }
 
+            // Speed slider
+            const speedSlider = document.getElementById('speed-slider');
+            const speedDisplay = document.getElementById('speed-display');
+            
             if (speedSlider) {
                 speedSlider.addEventListener('input', () => {
-                    if (speedDisplay) speedDisplay.textContent = `x${speedSlider.value}`;
+                    if (speedDisplay) speedDisplay.textContent = `${speedSlider.value}x`;
                 });
                 speedSlider.addEventListener('change', () => {
                     const newRate = parseFloat(speedSlider.value);
@@ -241,22 +424,66 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
                     console.log(`[Script] Playback speed set to: ${newRate}x. Refreshing page to apply...`);
                     window.location.reload();
                 });
-            } else { console.warn('[Script] speedSlider not found.'); }
+            }
+
+            // API Key
+            const apiKeyInput = document.getElementById('api-key-input');
+            const apiKeyStatus = document.getElementById('api-key-status');
+            const apiKeySaveBtn = document.getElementById('api-key-save-btn');
+            
+            // Load current API key
+            const currentKey = GM_getValue('sclpa_deepseek_api_key', '');
+            if (apiKeyInput) {
+                apiKeyInput.value = currentKey;
+            }
+            if (apiKeyStatus && currentKey) {
+                apiKeyStatus.className = 'api-key-status configured';
+                apiKeyStatus.innerHTML = '✅ API Key 已配置';
+            }
+            
+            if (apiKeySaveBtn && apiKeyInput) {
+                apiKeySaveBtn.onclick = () => {
+                    const newKey = apiKeyInput.value.trim();
+                    if (newKey) {
+                        GM_setValue('sclpa_deepseek_api_key', newKey);
+                        CONFIG.AI_API_SETTINGS.API_KEY = newKey;
+                        if (apiKeyStatus) {
+                            apiKeyStatus.className = 'api-key-status configured';
+                            apiKeyStatus.innerHTML = '✅ API Key 已保存！';
+                        }
+                        setTimeout(() => {
+                            alert('API Key 已保存！下次页面加载时生效。');
+                        }, 100);
+                    } else {
+                        if (apiKeyStatus) {
+                            apiKeyStatus.className = 'api-key-status not-configured';
+                            apiKeyStatus.innerHTML = '⚠️ 请输入有效的 API Key';
+                        }
+                    }
+                };
+            }
+
+            // Navigation buttons
+            const navSpecializedBtn = document.getElementById('nav-specialized-btn');
+            const navPublicVideoBtn = document.getElementById('nav-public-video-btn');
+            const navPublicArticleBtn = document.getElementById('nav-public-article-btn');
+            const navSpecializedExamBtn = document.getElementById('nav-specialized-exam-btn');
+            const navPublicExamBtn = document.getElementById('nav-public-exam-btn');
+            const collapseBtn = document.getElementById('mode-switcher-toggle-collapse');
 
             if (collapseBtn) {
                 collapseBtn.onclick = () => {
                     if (panel) panel.classList.toggle('collapsed');
                     if (collapseBtn && panel) collapseBtn.innerText = panel.classList.contains('collapsed') ? '＋' : '－';
                 };
-            } else { console.warn('[Script] collapseBtn not found.'); }
-
+            }
 
             if (navSpecializedBtn) {
                 navSpecializedBtn.onclick = () => {
                     GM_setValue('sclpa_nav_context', 'course');
                     window.location.href = 'https://zyys.ihehang.com/#/specialized';
                 };
-            } else { console.warn('[Script] navSpecializedBtn not found.'); }
+            }
 
             if (navPublicVideoBtn) {
                 navPublicVideoBtn.onclick = () => {
@@ -264,7 +491,7 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
                     GM_setValue('sclpa_nav_context', 'course');
                     window.location.href = 'https://zyys.ihehang.com/#/publicDemand';
                 };
-            } else { console.warn('[Script] navPublicVideoBtn not found.'); }
+            }
 
             if (navPublicArticleBtn) {
                 navPublicArticleBtn.onclick = () => {
@@ -272,44 +499,29 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
                     GM_setValue('sclpa_nav_context', 'course');
                     window.location.href = 'https://zyys.ihehang.com/#/publicDemand';
                 };
-            } else { console.warn('[Script] navPublicArticleBtn not found.'); }
+            }
 
             if (navSpecializedExamBtn) {
                 navSpecializedExamBtn.onclick = () => {
                     GM_setValue('sclpa_nav_context', 'exam');
                     window.location.href = 'https://zyys.ihehang.com/#/onlineExam';
                 };
-            } else { console.warn('[Script] navSpecializedExamBtn not found.'); }
+            }
 
             if (navPublicExamBtn) {
                 navPublicExamBtn.onclick = () => {
                     GM_setValue('sclpa_nav_context', 'exam');
                     window.location.href = 'https://zyys.ihehang.com/#/openOnlineExam';
                 };
-            } else { console.warn('[Script] navPublicExamBtn not found.'); }
-
-            if (apiKeySettingBtn) {
-                apiKeySettingBtn.onclick = () => {
-                    const currentKey = GM_getValue('sclpa_deepseek_api_key', '');
-                    const newKey = prompt('请输入您的 DeepSeek AI API Key:', currentKey);
-                    if (newKey !== null) {
-                        GM_setValue('sclpa_deepseek_api_key', newKey.trim());
-                        CONFIG.AI_API_SETTINGS.API_KEY = newKey.trim();
-                        alert('API Key 已保存！下次页面加载时生效。');
-                    }
-                };
-            } else { console.warn('[Script] apiKeySettingBtn not found.'); }
-
-
-            if (panel && document.getElementById('mode-switcher-header')) { // Ensure header exists before making draggable
-                 makeDraggable(panel, document.getElementById('mode-switcher-header'));
-            } else {
-                console.warn('[Script] Could not make panel draggable: panel or header not found after creation.');
             }
-            console.log('[Script] Mode Switcher Panel creation attempted and event listeners attached.');
+
+            if (panel && document.getElementById('mode-switcher-header')) {
+                makeDraggable(panel, document.getElementById('mode-switcher-header'));
+            }
+            console.log('[Script] Modern Mode Switcher Panel creation attempted and event listeners attached.');
 
         } catch (e) {
-            console.error('[Script Error] Error creating Mode Switcher Panel:', e);
+            console.error('[Script Error] Error creating Modern Mode Switcher Panel:', e);
             isModePanelCreated = false;
         }
     }
@@ -317,97 +529,135 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
     /**
      * Create AI helper panel, ensuring it's always new
      */
+    /**
+     * Create modern AI helper panel
+     */
     function createManualAiHelper() {
         const existingPanel = document.getElementById('ai-helper-panel');
         if (existingPanel) {
             existingPanel.remove();
             console.log('[Script] Removed existing AI helper panel.');
         }
-        console.log('[Script] Attempting to create AI Helper Panel...');
+        console.log('[Script] Attempting to create Modern AI Helper Panel...');
 
         try {
             GM_addStyle(`
-                #ai-helper-panel { position: fixed; bottom: 20px; right: 20px; width: 350px; max-width: 90vw; background-color: #f0f8ff; border: 1px solid #b0c4de; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.2); z-index: 99999; font-family: 'Microsoft YaHei', sans-serif; display: flex; flex-direction: column; }
-                #ai-helper-header { padding: 10px; background-color: #4682b4; color: white; font-weight: bold; cursor: move; border-top-left-radius: 9px; border-top-right-radius: 9px; user-select: none; display: flex; justify-content: space-between; align-items: center; }
-                #ai-helper-close-btn { background: none; border: none; color: white; font-size: 20px; cursor: pointer; }
-                #ai-helper-content { padding: 15px; display: flex; flex-direction: column; gap: 10px; }
-                #ai-helper-textarea { width: 100%; box-sizing: border-box; height: 100px; padding: 8px; border: 1px solid #ccc; border-radius: 5px; resize: vertical; }
-                #ai-helper-submit-btn { padding: 10px 15px; background-color: #5cb85c; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; }
-                #ai-helper-result { margin-top: 10px; padding: 10px; background-color: #ffffff; border: 1px solid #eee; border-radius: 5px; min-height: 50px; max-height: 200px; overflow-y: auto; white-space: pre-wrap; word-wrap: break-word; }
-                #ai-key-warning { color: #dc3545; font-size: 12px; margin-top: 5px; display: none; }
+                #ai-helper-panel { position: fixed; bottom: 20px; right: 420px; width: 400px; max-width: 90vw; background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); border-radius: 16px; box-shadow: 0 10px 40px rgba(0,0,0,0.25); z-index: 99999; font-family: 'Microsoft YaHei', -apple-system, sans-serif; display: flex; flex-direction: column; overflow: hidden; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+                #ai-helper-panel:hover { transform: translateY(-2px); box-shadow: 0 15px 50px rgba(0,0,0,0.3); }
+                #ai-helper-header { padding: 15px 20px; background: rgba(255,255,255,0.2); backdrop-filter: blur(10px); color: white; font-weight: bold; cursor: move; user-select: none; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1); }
+                #ai-helper-header h3 { margin: 0; font-size: 16px; display: flex; align-items: center; gap: 10px; }
+                #ai-helper-close-btn { background: rgba(255,255,255,0.2); border: none; color: white; font-size: 18px; cursor: pointer; padding: 6px 12px; border-radius: 8px; transition: all 0.3s; }
+                #ai-helper-close-btn:hover { background: rgba(255,255,255,0.3); transform: scale(1.1); }
+                #ai-helper-content { padding: 20px; background: white; display: flex; flex-direction: column; gap: 16px; }
+                #ai-helper-textarea { width: 100%; box-sizing: border-box; height: 120px; padding: 14px; border: 2px solid #e9ecef; border-radius: 12px; resize: vertical; font-size: 14px; transition: all 0.3s; font-family: inherit; }
+                #ai-helper-textarea:focus { outline: none; border-color: #38ef7d; box-shadow: 0 0 0 3px rgba(56,239,125,0.1); }
+                #ai-helper-submit-btn { padding: 14px 24px; background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); color: white; border: none; border-radius: 12px; cursor: pointer; font-size: 15px; font-weight: 600; transition: all 0.3s; display: flex; align-items: center; justify-content: center; gap: 8px; }
+                #ai-helper-submit-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(56,239,125,0.4); }
+                #ai-helper-submit-btn:disabled { background: #ccc; cursor: not-allowed; transform: none; box-shadow: none; }
+                #ai-helper-result { padding: 16px; background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 12px; min-height: 80px; max-height: 250px; overflow-y: auto; white-space: pre-wrap; word-wrap: break-word; font-size: 14px; line-height: 1.6; border: 2px solid #e9ecef; }
+                #ai-helper-result::-webkit-scrollbar { width: 6px; }
+                #ai-helper-result::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 3px; }
+                #ai-helper-result::-webkit-scrollbar-thumb { background: #38ef7d; border-radius: 3px; }
+                #ai-key-warning { color: #856404; font-size: 13px; padding: 12px; background: #fff3cd; border-radius: 8px; display: flex; align-items: center; gap: 8px; border-left: 4px solid #ffc107; }
+                .ai-thinking { display: flex; align-items: center; gap: 12px; color: #11998e; }
+                .ai-thinking-dot { display: flex; gap: 4px; }
+                .ai-thinking-dot span { width: 8px; height: 8px; background: #11998e; border-radius: 50%; animation: bounce 1.4s infinite ease-in-out both; }
+                .ai-thinking-dot span:nth-child(1) { animation-delay: -0.32s; }
+                .ai-thinking-dot span:nth-child(2) { animation-delay: -0.16s; }
+                @keyframes bounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
+                .ai-result-label { font-size: 13px; color: #666; margin-bottom: 8px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
             `);
+            
             const panel = document.createElement('div');
             panel.id = 'ai-helper-panel';
             panel.innerHTML = `
-                <div id="ai-helper-header"><span>AI 问答助手</span><button id="ai-helper-close-btn">&times;</button></div>
+                <div id="ai-helper-header">
+                    <h3>🤖 AI 问答助手</h3>
+                    <button id="ai-helper-close-btn">✕</button>
+                </div>
                 <div id="ai-helper-content">
-                    <label for="ai-helper-textarea">在此输入您的问题：</label>
-                    <textarea id="ai-helper-textarea" placeholder="案例：复制所有问题以及选项并询问AI，AI将直接回复答案选项..."></textarea>
-                    <div id="ai-key-warning">请先在控制面板中设置您的 DeepSeek API Key！</div>
-                    <button id="ai-helper-submit-btn">向AI提问</button>
-                    <label for="ai-helper-result">AI 回答：</label>
-                    <div id="ai-helper-result">请先提问...</div>
+                    <textarea id="ai-helper-textarea" placeholder="💡 输入您的问题...&#10;&#10;示例：复制所有考试题目及选项，AI将自动分析并给出答案"></textarea>
+                    <div id="ai-key-warning" style="display: none;">
+                        ⚠️ 请先在控制面板的"设置"标签页中配置您的 DeepSeek API Key
+                    </div>
+                    <button id="ai-helper-submit-btn">
+                        <span>🚀</span>
+                        <span>向 AI 提问</span>
+                    </button>
+                    <div class="ai-result-label">💬 AI 回答：</div>
+                    <div id="ai-helper-result">
+                        <span style="color: #999;">请在上方输入您的问题...</span>
+                    </div>
                 </div>
             `;
+            
             if (document.body) {
                 document.body.appendChild(panel);
-                console.log('[Script] AI Helper Panel appended to body.');
+                console.log('[Script] Modern AI Helper Panel appended to body.');
             } else {
                 console.error('[Script Error] document.body is not available when trying to append AI Helper Panel.');
                 return;
             }
 
-            // Ensure elements are retrieved AFTER they are appended to the DOM
+            // Get elements
             const submitBtn = document.getElementById('ai-helper-submit-btn');
             const closeBtn = document.getElementById('ai-helper-close-btn');
             const textarea = document.getElementById('ai-helper-textarea');
             const resultDiv = document.getElementById('ai-helper-result');
             const keyWarning = document.getElementById('ai-key-warning');
 
-            // Check if API Key is set
-            if (keyWarning && submitBtn) { // Add null checks
-                if (!CONFIG.AI_API_SETTINGS.API_KEY || CONFIG.AI_API_SETTINGS.API_KEY === '请在此处填入您自己的 DeepSeek API Key') {
+            // Check API Key status
+            const isApiKeyConfigured = CONFIG.AI_API_SETTINGS.API_KEY && 
+                                       CONFIG.AI_API_SETTINGS.API_KEY !== '请在此处填入您自己的 DeepSeek API Key';
+            
+            if (keyWarning && submitBtn) {
+                if (!isApiKeyConfigured) {
                     keyWarning.style.display = 'block';
                     submitBtn.disabled = true;
-                    submitBtn.innerText = '请先设置 API Key';
                 }
-            } else { console.warn('[Script] AI helper keyWarning or submitBtn not found after creation.'); }
+            }
 
-            if (closeBtn) closeBtn.onclick = () => { if (panel) panel.remove(); };
-            if (submitBtn && textarea && resultDiv) { // Add null checks
+            if (closeBtn) {
+                closeBtn.onclick = () => { 
+                    if (panel) panel.remove(); 
+                };
+            }
+
+            if (submitBtn && textarea && resultDiv) {
                 submitBtn.onclick = async () => {
                     const question = textarea.value.trim();
-                    if (!question) { resultDiv.innerText = '错误：问题不能为空！'; return; }
-                    if (!CONFIG.AI_API_SETTINGS.API_KEY || CONFIG.AI_API_SETTINGS.API_KEY === '请在此处填入您自己的 DeepSeek API Key') {
-                        resultDiv.innerText = '错误：请先设置您的 DeepSeek API Key！';
+                    if (!question) { 
+                        resultDiv.innerHTML = '<span style="color: #dc3545;">❌ 错误：问题不能为空！</span>'; 
+                        return; 
+                    }
+                    if (!isApiKeyConfigured) {
+                        resultDiv.innerHTML = '<span style="color: #dc3545;">❌ 错误：请先在控制面板中设置您的 DeepSeek API Key！</span>';
                         return;
                     }
 
                     submitBtn.disabled = true;
-                    submitBtn.innerText = 'AI思考中...';
-                    resultDiv.innerText = '正在向AI发送请求...';
+                    submitBtn.innerHTML = '<span class="ai-thinking"><span class="ai-thinking-dot"><span></span><span></span><span></span></span><span>AI思考中...</span>';
+                    resultDiv.innerHTML = '<div class="ai-thinking"><span class="ai-thinking-dot"><span></span><span></span><span></span></span><span>正在向AI发送请求...</span></div>';
+                    
                     try {
-                        resultDiv.innerText = await askAiForAnswer(question);
+                        const answer = await askAiForAnswer(question);
+                        resultDiv.innerHTML = `<div style="color: #28a745; margin-bottom: 8px;">✅ 已获取答案</div><div style="color: #333;">${answer}</div>`;
                     } catch (error) {
-                        resultDiv.innerText = `请求失败：${error}`;
+                        resultDiv.innerHTML = `<span style="color: #dc3545;">❌ 请求失败：${error}</span>`;
                     } finally {
                         submitBtn.disabled = false;
-                        submitBtn.innerText = '向AI提问';
+                        submitBtn.innerHTML = '<span>🚀</span><span>向 AI 提问</span>';
                     }
                 };
-            } else {
-                console.warn('[Script] AI helper buttons or text areas not found after creation.');
             }
 
-            if (panel && document.getElementById('ai-helper-header')) { // Ensure header exists before making draggable
+            if (panel && document.getElementById('ai-helper-header')) {
                 makeDraggable(panel, document.getElementById('ai-helper-header'));
-            } else {
-                console.warn('[Script] Could not make AI helper panel draggable: panel or header not found after creation.');
             }
-            console.log('[Script] AI Helper Panel creation attempted and event listeners attached.');
+            console.log('[Script] Modern AI Helper Panel creation attempted and event listeners attached.');
 
         } catch (e) {
-            console.error('[Script Error] Error creating AI Helper Panel:', e);
+            console.error('[Script Error] Error creating Modern AI Helper Panel:', e);
         }
     }
 

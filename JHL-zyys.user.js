@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         四川执业药师-金航联平台
 // @namespace    http://tampermonkey.net/
-// @version      1.5.1
+// @version      1.5.2
 // @description  针对 sc.mtnet.com.cn（四川执业药师-金航联平台） 网站设计的自动化刷课脚本，实现自动导航、静音、后台播放以及功能更强大的AI自动考试助手。请注意倍速不可用！！！自该版本(1.5.1)起更新了协议
 // @author       Coren
 // @match        *://sc.mtnet.com.cn/*
@@ -428,7 +428,7 @@
                 method: 'POST',
                 url: 'https://api.deepseek.com/chat/completions',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${deepseekApiKey}` },
-                data: JSON.stringify({ model: 'deepseek-chat', messages: [{ "role": "system", "content": CONFIG.API_PROMPT }, { "role": "user", "content": questions }], stream: false }),
+                data: JSON.stringify({ model: 'deepseek-v4-flash', messages: [{ "role": "system", "content": CONFIG.API_PROMPT }, { "role": "user", "content": questions }], stream: false, thinking: {"type": "disabled"} }),
                 onload: (response) => {
                     if (response.status === 200) {
                         const result = JSON.parse(response.responseText);

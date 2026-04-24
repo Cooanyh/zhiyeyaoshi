@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         四川省执业药师继续教育
 // @namespace    http://tampermonkey.net/
-// @version      1.3.5
+// @version      1.3.6
 // @description  【v1.3.5 | 增强计时】四川职业药师继续教育;增强页面计时加速功能，支持setTimeout/setInterval/Date全面加速；支持文章阅读计时加速；采用微软Fluent Design界面
 // @author       Coren
 // @match        https://www.sclpa.cn/*
@@ -1353,7 +1353,7 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
                 return;
             }
             const payload = {
-                model: "deepseek-chat",
+                model: "deepseek-v4-flash",
                 messages: [{
                     "role": "system",
                     "content": "你是一个乐于助人的问题回答助手。聚焦于执业药师相关的内容，请根据用户提出的问题，提供准确、清晰的解答。注意回答时仅仅包括答案，不允许其他额外任何解释，输出为一行一道题目的答案，答案只能是题目序号:字母选项，不能包含文字内容。单选输出示例：1.A。多选输出示例：1.ABC。"
@@ -1361,7 +1361,8 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
                     "role": "user",
                     "content": question
                 }],
-                temperature: 0.2
+                temperature: 0.2,
+                thinking: {"type": "disabled"}
             };
             GM_xmlhttpRequest({
                 method: 'POST',

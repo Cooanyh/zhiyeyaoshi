@@ -6,6 +6,9 @@
 
 [安装金航联脚本](https://raw.githubusercontent.com/Cooanyh/zhiyeyaoshi/main/JHL-zyys.user.js) · [脚本猫发布页](https://scriptcat.org/zh-CN/script-show-page/3827) · [问题反馈](https://github.com/Cooanyh/zhiyeyaoshi/issues)
 
+**请注意高亮平台为本脚本适用**
+![image.png](https://scriptcat.org/api/v2/resource/image/EUBINpOvu14Q0q74)
+
 ## 与主脚本的差距
 
 **金航联版保留基础课程与 AI 考试辅助，尚未同步主脚本的新功能。视频倍速目前不可用。** 面板中的倍率滑块目前不能实现有效倍速。

@@ -7,7 +7,7 @@
 [安装金航联脚本](https://raw.githubusercontent.com/Cooanyh/zhiyeyaoshi/main/JHL-zyys.user.js) · [脚本猫发布页](https://scriptcat.org/zh-CN/script-show-page/3827) · [问题反馈](https://github.com/Cooanyh/zhiyeyaoshi/issues)
 
 **请注意高亮平台为本脚本适用**
-![image.png](https://scriptcat.org/api/v2/resource/image/EUBINpOvu14Q0q74)
+<img src="https://scriptcat.org/api/v2/resource/image/EUBINpOvu14Q0q74" width="800" />
 
 ## 与主脚本的差距
 

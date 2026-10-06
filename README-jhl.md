@@ -6,11 +6,9 @@
 
 [安装金航联脚本](https://raw.githubusercontent.com/Cooanyh/zhiyeyaoshi/main/JHL-zyys.user.js) · [脚本猫发布页](https://scriptcat.org/zh-CN/script-show-page/3827) · [问题反馈](https://github.com/Cooanyh/zhiyeyaoshi/issues)
 
-当前源码版本为 **1.5.2**。顶部徽章读取脚本猫发布数据，会自动更新，可能存在缓存延迟。
-
 ## 与主脚本的差距
 
-**金航联版保留基础课程与 AI 考试辅助，尚未同步主脚本的新功能。视频倍速目前不可用。** 面板虽然保留倍率滑块，源码也会尝试设置倍率，但不能将其视为平台已支持倍速。
+**金航联版保留基础课程与 AI 考试辅助，尚未同步主脚本的新功能。视频倍速目前不可用。** 面板中的倍率滑块目前不能实现有效倍速。
 
 | 功能 | 金航联版 1.5.2 | 主脚本 1.3.7 |
 | --- | --- | --- |
@@ -37,11 +35,11 @@
 1. 安装 [ScriptCat（脚本猫）](https://scriptcat.org/) 或 [Tampermonkey](https://www.tampermonkey.net/)。
 2. 从 [GitHub 安装链接](https://raw.githubusercontent.com/Cooanyh/zhiyeyaoshi/main/JHL-zyys.user.js) 或[脚本猫发布页](https://scriptcat.org/zh-CN/script-show-page/3827)安装金航联脚本。
 3. 登录金航联平台并刷新页面，确认出现控制面板。服务首次使用默认开启，静音默认开启。
-4. 需要 AI 功能时，在主控制面板输入 DeepSeek API Key；输入框变更并失去焦点时会保存，无需点击主脚本的“保存设置”按钮。
+4. 需要 AI 功能时，在控制面板输入 DeepSeek API Key，输入完成后点击输入框外部即可保存。
 5. 点击所需课程或考试的快捷入口。课程流程按所选任务查找未完成内容。
 6. 进入考试页后，在 AI 助手中点击“开始自动答题”。请核对答案和平台结果。
 
-GitHub 与脚本猫发布版本可能不同步，安装后请核对脚本管理器中的版本。不要同时启用多个金航联脚本副本。
+安装后请确认脚本已启用，避免同时运行多个副本。
 
 ### 考试模式
 
@@ -52,10 +50,10 @@ GitHub 与脚本猫发布版本可能不同步，安装后请核对脚本管理�
 
 ## AI 配置与数据
 
-- 默认接口为 `https://api.deepseek.com/chat/completions`，源码配置模型为 `deepseek-v4-flash`，并关闭思考模式；可用性取决于服务商及账号权限。
+- 默认接口为 `https://api.deepseek.com/chat/completions`，默认模型为 `deepseek-v4-flash`，并关闭思考模式；可用性取决于服务商及账号权限。
 - API Key 和设置保存在脚本管理器的本地存储中；AI 功能会向配置接口发送题目、选项或手动提问内容。
 - 视频课程处理不需要 API Key。不要把真实 Key 写入源码或反馈截图。
-- 如需修改服务商或模型，可参考[更换 AI 模型教程](https://p.kdocs.cn/s/HNQBR5RAACAEW)，并核对接口格式与 `@connect` 授权域名。
+- 如需更换服务商或模型，请参考[更换 AI 模型教程](https://p.kdocs.cn/s/HNQBR5RAACAEW)。
 
 ## 常见问题
 

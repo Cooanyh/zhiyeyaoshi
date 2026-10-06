@@ -6,9 +6,9 @@
 
 [安装主脚本](https://raw.githubusercontent.com/Cooanyh/zhiyeyaoshi/main/zhiyeyaoshi.user.js) · [脚本猫发布页](https://scriptcat.org/zh-CN/script-show-page/3660) · [问题反馈](https://github.com/Cooanyh/zhiyeyaoshi/issues)
 
-当前源码版本为 **1.3.7**。课程和考试流程主要适配 `zyys.ihehang.com`，入口为[四川省执业药师继续教育网站](https://www.sclpa.cn/Default.aspx)。顶部徽章读取脚本猫发布数据，会自动更新，可能存在缓存延迟。
+课程和考试流程适配 `zyys.ihehang.com`，入口为[四川省执业药师继续教育网站](https://www.sclpa.cn/Default.aspx)。
 
-本脚本包含 H5 倍速控制、全能托管及考试失败纠错重试。真实页面行为受平台与浏览器影响，请以平台记录为准；当前维护阶段的静态检查不能替代登录环境验证。
+支持 H5 视频倍速、全能托管和考试失败纠错重试。学习进度和考试成绩以平台记录为准。
 
 **如果进入的是 `sc.mtnet.com.cn`，请安装[金航联脚本](https://github.com/Cooanyh/zhiyeyaoshi/blob/main/README-jhl.md)。** 金航联版不支持有效的视频倍速，尚未同步全能托管、错题纠正与答案记忆等功能。两个脚本分别维护版本号，不能用版本数字大小判断功能领先程度。
 
@@ -41,7 +41,7 @@
 
 点击安装链接，在脚本管理器中确认安装，然后刷新学习页面。若浏览器只显示源码，可将完整代码复制到脚本管理器新建的脚本中并保存。
 
-GitHub 与第三方发布页的更新可能不同步。安装后请在脚本管理器中核对版本，避免同时启用同一脚本的多个副本。
+安装后请确认脚本已启用，避免同时运行多个副本。
 
 ## 快速开始
 
@@ -76,11 +76,11 @@ GitHub 与第三方发布页的更新可能不同步。安装后请在脚本管�
 
 ### AI 配置与数据
 
-- 默认接口为 `https://api.deepseek.com/chat/completions`；源码当前配置的模型为 `deepseek-v4-flash`，并关闭思考模式。模型是否可用取决于服务商和账号权限。
+- 默认接口为 `https://api.deepseek.com/chat/completions`；默认模型为 `deepseek-v4-flash`，并关闭思考模式。模型是否可用取决于服务商和账号权限。
 - API Key、播放倍率、重试次数及部分运行状态保存在脚本管理器的本地存储中。
 - AI 功能会向配置的接口发送提问内容、题目、选项，以及纠错所需的答题信息。视频播放功能本身不需要 API Key。
 - 不要将真实 API Key 写入源码、提交到仓库或附在反馈截图中。
-- 如需调整服务商或模型，可参考[更换 AI 模型教程](https://p.kdocs.cn/s/HNQBR5RAACAEW)。修改源码时还需核对接口格式和脚本的 `@connect` 域名授权。
+- 如需更换服务商或模型，请参考[更换 AI 模型教程](https://p.kdocs.cn/s/HNQBR5RAACAEW)。
 
 ## 常见问题
 
@@ -115,7 +115,7 @@ AI 答案可能出错，自动纠错不保证通过考试。请核对平台结�
 ### 修复
 
 - 调整 H5 视频倍速应用方式，处理播放器将倍率恢复为 1 倍的情况。
-- 移除冲突的全局属性拦截和页面可见性伪造，改为播放器级倍速控制与后台播放恢复。
+- 调整后台播放处理，尝试恢复后台暂停的视频。
 
 ### 更新
 
@@ -123,25 +123,13 @@ AI 答案可能出错，自动纠错不保证通过考试。请核对平台结�
 - 增加全能托管，按课程与考试顺序推进，并保存当前阶段。
 - 增加公需课分类遍历和考试重试次数设置。
 
-当前完成了 JavaScript 语法和 Git 差异格式检查；全能托管、后台播放及考试重试仍需真实登录环境验证。
-
-## 问题反馈与开发
+## 问题反馈
 
 通过 [GitHub Issues](https://github.com/Cooanyh/zhiyeyaoshi/issues) 反馈问题，建议附上：
 
 - 使用的脚本名称、版本、浏览器和脚本管理器版本。
 - 所在平台、页面类型、复现步骤，以及预期和实际结果。
 - 隐藏个人信息后的截图或控制台报错。请勿提供密码、API Key、Cookie 或登录凭据。
-
-本项目为直接运行的用户脚本，无需构建。修改后可执行：
-
-```powershell
-node --check .\zhiyeyaoshi.user.js
-node --check .\JHL-zyys.user.js
-git diff --check
-```
-
-静态检查不能替代真实页面验证。涉及播放器、页面跳转和考试流程的修改，应在获得授权的环境中核验。
 
 ## 使用边界与许可
 

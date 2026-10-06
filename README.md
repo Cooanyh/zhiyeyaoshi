@@ -37,28 +37,11 @@
 
 如果可以选择学习平台，并且需要上述新增功能，优先考虑主脚本适配的平台；已经使用金航联平台的用户应安装金航联脚本。主脚本不能直接替代金航联版，两个平台的页面结构和流程不同。
 
-徽章读取脚本猫公开数据，会自动更新，可能有缓存延迟。GitHub 与各发布页版本可能不同步，安装后请核对实际版本，避免启用多个副本。
+安装后请确认脚本已启用，避免同时运行多个副本。
 
-## 发布页同步
-
-将对应的源码链接用于“源代码同步”，将对应 README 链接用于“默认附加信息”，格式选择 **Markdown**。链接跟随 `main` 分支，不固定到单次提交。
-
-| 平台脚本 | 源代码同步 | 附加信息同步 |
-| --- | --- | --- |
-| 主脚本 | [zhiyeyaoshi.user.js](https://raw.githubusercontent.com/Cooanyh/zhiyeyaoshi/main/zhiyeyaoshi.user.js) | [README-main.md](https://raw.githubusercontent.com/Cooanyh/zhiyeyaoshi/main/README-main.md) |
-| 金航联脚本 | [JHL-zyys.user.js](https://raw.githubusercontent.com/Cooanyh/zhiyeyaoshi/main/JHL-zyys.user.js) | [README-jhl.md](https://raw.githubusercontent.com/Cooanyh/zhiyeyaoshi/main/README-jhl.md) |
-
-## 反馈与开发
+## 问题反馈
 
 通过 [GitHub Issues](https://github.com/Cooanyh/zhiyeyaoshi/issues) 反馈，注明脚本名称、版本、浏览器、脚本管理器及复现步骤。请隐藏密码、API Key、Cookie 和个人信息。
-
-用户脚本直接安装运行，无需构建。修改后可执行以下静态检查，并在获得授权的真实页面验证对应流程：
-
-```powershell
-node --check .\zhiyeyaoshi.user.js
-node --check .\JHL-zyys.user.js
-git diff --check
-```
 
 ## 使用边界与许可
 

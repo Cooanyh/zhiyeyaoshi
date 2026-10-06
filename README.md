@@ -1,6 +1,6 @@
 # 四川省执业药师继续教育脚本
 
-为四川省执业药师继续教育网站提供课程导航、视频播放控制、文章完成状态检测和 AI 答题辅助。支持 ScriptCat（脚本猫）和 Tampermonkey。
+本仓库维护两个平台的独立用户脚本，支持 ScriptCat（脚本猫）和 Tampermonkey。请按实际进入的学习平台选择安装，详细教程分别维护在各自的说明文档中。
 
 **主脚本**
 
@@ -10,166 +10,31 @@
 
 [![金航联脚本 近24小时安装](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fscriptcat.org%2Fapi%2Fv2%2Fscripts%2F3827&query=%24.data.today_install&label=%E8%BF%9124%E5%B0%8F%E6%97%B6%E5%AE%89%E8%A3%85&color=brightgreen&style=flat&cacheSeconds=300)](https://scriptcat.org/zh-CN/script-show-page/3827) [![金航联脚本 总安装](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fscriptcat.org%2Fapi%2Fv2%2Fscripts%2F3827&query=%24.data.total_install&label=%E6%80%BB%E5%AE%89%E8%A3%85&color=brightgreen&style=flat&cacheSeconds=300)](https://scriptcat.org/zh-CN/script-show-page/3827) [![金航联脚本 脚本猫版本](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fscriptcat.org%2Fapi%2Fv2%2Fscripts%2F3827&query=%24.data.script.version&label=%E8%84%9A%E6%9C%AC%E7%8C%AB%E7%89%88%E6%9C%AC&color=5967bf&style=flat&cacheSeconds=300)](https://scriptcat.org/zh-CN/script-show-page/3827)
 
+## 选择脚本
 
-[安装主脚本](https://raw.githubusercontent.com/Cooanyh/zhiyeyaoshi/main/zhiyeyaoshi.user.js) · [脚本猫发布页](https://scriptcat.org/zh-CN/script-show-page/3660) · [问题反馈](https://github.com/Cooanyh/zhiyeyaoshi/issues) · [许可证](LICENSE)
-
-> 当前主脚本版本为 **1.3.7**。本次更新包含 H5 视频倍速修复、考试失败重试和全能托管；这些流程仍需在已登录的平台页面中验证，不保证所有课程、考试及浏览器环境都能正常运行。
-
-## 支持的平台
-
-本仓库维护两个独立脚本，请按实际进入的学习平台选择安装。
-
-| 脚本 | 适用网站 | 版本 | 说明 |
+| 脚本 | 适用网站 | 独立说明 | 安装 |
 | --- | --- | --- | --- |
-| [主脚本](zhiyeyaoshi.user.js) | `www.sclpa.cn`、`zyys.ihehang.com` | 1.3.7 | 本文主要介绍的脚本，支持视频倍速和全能托管 |
-| [金航联脚本](JHL-zyys.user.js) | `sc.mtnet.com.cn` | 1.5.2 | 独立的平台适配；视频倍速不可用，AI 考试需手动开启 |
+| 主脚本 | `www.sclpa.cn`、`zyys.ihehang.com` | [主脚本 README](https://github.com/Cooanyh/zhiyeyaoshi/blob/main/README-main.md) | [GitHub](https://raw.githubusercontent.com/Cooanyh/zhiyeyaoshi/main/zhiyeyaoshi.user.js) · [脚本猫](https://scriptcat.org/zh-CN/script-show-page/3660) · [Greasy Fork](https://greasyfork.org/zh-CN/scripts/540285) |
+| 金航联脚本 | `sc.mtnet.com.cn` | [金航联 README](https://github.com/Cooanyh/zhiyeyaoshi/blob/main/README-jhl.md) | [GitHub](https://raw.githubusercontent.com/Cooanyh/zhiyeyaoshi/main/JHL-zyys.user.js) · [脚本猫](https://scriptcat.org/zh-CN/script-show-page/3827) |
 
-四川省执业药师继续教育入口：[www.sclpa.cn](https://www.sclpa.cn/Default.aspx)。主脚本的课程和考试流程主要适配 `zyys.ihehang.com`，不适用于金航联平台。
+主脚本包含 H5 视频倍速、全能托管、公需分类遍历及考试失败纠错重试。**金航联版倍速不可用，尚未同步全能托管、错题纠正、答案记忆和失败汇总等功能。** 两个脚本独立维护版本号，不能按版本数字大小判断功能领先程度。
 
-### 金航联版与主脚本的差距
+徽章读取脚本猫公开数据，会自动更新，可能有缓存延迟。GitHub 与各发布页版本可能不同步，安装后请核对实际版本，避免启用多个副本。
 
-**金航联版目前保留基础课程与 AI 考试辅助，尚未同步主脚本 1.3.7 的全能托管和考试纠错流程。** 两个脚本分别维护版本号，金航联版的 1.5.2 不代表功能比主脚本 1.3.7 更新或更完整。
+## 发布页同步
 
-| 功能 | 主脚本 1.3.7 | 金航联版 1.5.2 |
+将对应的源码链接用于“源代码同步”，将对应 README 链接用于“默认附加信息”，格式选择 **Markdown**。链接跟随 `main` 分支，不固定到单次提交。
+
+| 平台脚本 | 源代码同步 | 附加信息同步 |
 | --- | --- | --- |
-| 视频倍速 | 支持 1–16 倍设置，包含 H5 倍速保护 | 倍速不可用；面板中的倍率设置不代表实际生效 |
-| 视频静音与后台播放处理 | 支持静音，尝试恢复后台暂停 | 支持静音，包含旧版后台防暂停处理 |
-| 课程与考试快捷导航 | 专业课、公需视频、公需文章及两类考试 | 专业课、公需视频及两类考试，无独立文章入口 |
-| 全能托管 | 按五个阶段推进，并保存当前阶段 | 未实现，需分别选择任务入口 |
-| 公需课分类遍历 | 包含分类切换与未完成内容遍历 | 未实现主脚本的分类遍历流程 |
-| AI 答题 | 包含题目提取、答案选择与提交 | 支持题目提取、答案填写与交卷，提供手动确认及可选自动模式 |
-| 考试失败纠错 | 尝试提取错题、请求 AI 修正并重新作答 | 未实现 |
-| 已确认答案记忆 | 重试时优先使用记忆答案 | 未实现 |
-| 重试上限与失败场次汇总 | 可配置重试次数，跳过耗尽场次并汇总提示 | 未实现 |
+| 主脚本 | [zhiyeyaoshi.user.js](https://raw.githubusercontent.com/Cooanyh/zhiyeyaoshi/main/zhiyeyaoshi.user.js) | [README-main.md](https://raw.githubusercontent.com/Cooanyh/zhiyeyaoshi/main/README-main.md) |
+| 金航联脚本 | [JHL-zyys.user.js](https://raw.githubusercontent.com/Cooanyh/zhiyeyaoshi/main/JHL-zyys.user.js) | [README-jhl.md](https://raw.githubusercontent.com/Cooanyh/zhiyeyaoshi/main/README-jhl.md) |
 
-金航联版的自动模式会在交卷后返回列表，但没有主脚本的考试结果识别与纠错重试流程。未通过的考试需要自行核对并按平台要求处理，不能把“自动交卷”视为“自动通过”。
+## 反馈与开发
 
-如果可以选择学习平台，并且需要上述新增功能，优先考虑主脚本适配的平台；已经使用金航联平台的用户应安装金航联脚本。主脚本不能直接替代金航联版，两个平台的页面结构和流程不同。
+通过 [GitHub Issues](https://github.com/Cooanyh/zhiyeyaoshi/issues) 反馈，注明脚本名称、版本、浏览器、脚本管理器及复现步骤。请隐藏密码、API Key、Cookie 和个人信息。
 
-## 功能
-
-- **课程导航**：提供专业课程、公需课视频、公需课文章及两类考试的快捷入口。
-- **视频学习**：默认静音，支持自动播放、多章节切换，以及 1–16 倍速设置。
-- **H5 倍速控制**：使用标准 HTML5 视频属性，在播放器加载、播放和重新挂载时应用所设倍率；后台暂停时尝试恢复播放。
-- **公需课分类遍历**：查找未完成内容，当前分类处理结束后继续切换其他分类。
-- **文章状态检测**：检测平台显示的完成进度，完成后返回列表继续处理。
-- **AI 助手**：支持手动提问，以及考试页面的题目提取、答案选择和提交。
-- **失败重试**：考试未通过时尝试提取错题并请求 AI 修正，保留已确认答案；无法读取复核页时，尝试根据上一轮题目与答案进行修正。
-- **全能托管**：按固定顺序处理课程和考试，保存当前阶段，页面刷新或跳转后继续。
-- **服务控制**：通过控制面板启停自动化服务，保存播放倍率、重试次数和 AI 配置。
-
-## 安装
-
-### 1. 安装脚本管理器
-
-选择一个脚本管理器即可：
-
-- [ScriptCat（脚本猫）](https://scriptcat.org/)：推荐使用。
-- [Tampermonkey](https://www.tampermonkey.net/)：也可使用。
-
-### 2. 安装对应脚本
-
-| 来源 | 主脚本 | 金航联脚本 |
-| --- | --- | --- |
-| GitHub | [安装主脚本](https://raw.githubusercontent.com/Cooanyh/zhiyeyaoshi/main/zhiyeyaoshi.user.js) | [安装金航联脚本](https://raw.githubusercontent.com/Cooanyh/zhiyeyaoshi/main/JHL-zyys.user.js) |
-| 脚本猫 | [发布页 #3660](https://scriptcat.org/zh-CN/script-show-page/3660) | [发布页 #3827](https://scriptcat.org/zh-CN/script-show-page/3827) |
-| Greasy Fork | [主脚本发布页](https://greasyfork.org/zh-CN/scripts/540285) | — |
-
-点击安装链接，在脚本管理器中确认安装，然后刷新学习页面。若浏览器只显示源码，可将完整代码复制到脚本管理器新建的脚本中并保存。
-
-GitHub 与第三方发布页的更新可能不同步。安装后请在脚本管理器中核对版本，避免同时启用同一脚本的多个副本。
-
-## 快速开始
-
-1. 登录继续教育网站，进入对应学习平台。
-2. 确认页面右下角出现“控制面板”，并检查服务状态。首次使用时，服务默认开启。
-3. 在“设置”中调整视频倍速；需要 AI 功能时，填写 DeepSeek API Key 并点击“保存设置”，随后刷新页面。
-4. 在“控制”中选择需要处理的课程或考试入口，或开启“全能托管”。
-5. 留意课程进度、考试结果及页面提示；需要中止时，点击服务暂停按钮。
-
-### 全能托管
-
-处理顺序为：
-
-```text
-专业课视频 → 公需课视频 → 公需课文章 → 专业课考试 → 公需课考试
-```
-
-脚本在当前阶段没有待处理内容时进入下一阶段。阶段状态会保存在脚本管理器中；点击原有的课程或考试快捷导航会停止全能托管，切换到所选流程。
-
-“处理完毕”可能包含重试耗尽后跳过的考试，不代表全部考试通过，请以平台记录为准。
-
-## 配置
-
-主脚本的常用配置位于控制面板的“设置”页，无需修改源码。
-
-| 配置项 | 默认值 | 说明 |
-| --- | --- | --- |
-| 视频倍速 | 1.0 倍 | 可调范围 1–16 倍，步长 0.5；实际效果受播放器和浏览器影响 |
-| 考试失败自动重试次数 | 3 次 | 可设为 0–5 次；达到上限后跳过该场并继续其他考试 |
-| DeepSeek API Key | 未配置 | AI 提问和答题前需填写并保存 |
-| 自动化服务 | 开启 | 在“控制”页切换，切换时会刷新页面 |
-
-### AI 配置与数据
-
-- 默认接口为 `https://api.deepseek.com/chat/completions`；源码当前配置的模型为 `deepseek-v4-flash`，并关闭思考模式。模型是否可用取决于服务商和账号权限。
-- API Key、播放倍率、重试次数及部分运行状态保存在脚本管理器的本地存储中。
-- AI 功能会向配置的接口发送提问内容、题目、选项，以及纠错所需的答题信息。视频播放功能本身不需要 API Key。
-- 不要将真实 API Key 写入源码、提交到仓库或附在反馈截图中。
-- 如需调整服务商或模型，可参考[更换 AI 模型教程](https://p.kdocs.cn/s/HNQBR5RAACAEW)。修改源码时还需核对接口格式和脚本的 `@connect` 域名授权。
-
-## 常见问题
-
-### 控制面板没有出现
-
-确认当前网站属于脚本匹配范围、脚本管理器及脚本已启用，然后刷新页面。进入金航联平台时，应安装对应的金航联脚本。若仍无面板，请在浏览器控制台查看报错并提交反馈。
-
-### 视频仍然是 1 倍速
-
-主脚本首次使用默认就是 1 倍速，请先在“设置”中调整。若设置后仍被还原，检查是否同时启用了其他倍速脚本。金航联脚本目前不支持视频倍速。
-
-### 切换到后台后视频停止
-
-脚本会尝试恢复后台播放，但浏览器的自动播放限制、标签页节流、休眠和平台行为仍可能影响播放。建议保持学习页面在前台，并观察平台实际记录的进度。
-
-### 文章阅读时长没有加速
-
-当前主脚本没有启用全局计时加速。文章流程等待平台显示完成状态，不保证缩短阅读时长，也不会因调整视频倍速而自动加速文章计时。
-
-### 考试未通过会怎样
-
-默认最多自动重试 3 次。达到上限、关闭重试或纠错请求失败时，脚本会记录失败场次并尝试继续其他考试，最后提示失败情况。重试次数设为 **0** 表示关闭自动重试，当前实现会跳过失败场次继续处理；平台也可能要求重新学习课程。
-
-AI 答案可能出错，自动纠错不保证通过考试。请核对平台结果，并按平台要求处理未通过的场次。
-
-### API Key 已保存，但 AI 请求失败
-
-确认 Key 有效、账号可使用当前配置的模型、接口地址正确，并查看控制台或 AI 面板的错误提示。反馈时请隐藏 Key 和个人信息。
-
-## 本次更新：1.3.7
-
-### 修复
-
-- 调整 H5 视频倍速应用方式，处理播放器将倍率恢复为 1 倍的情况。
-- 移除冲突的全局属性拦截和页面可见性伪造，改为播放器级倍速控制与后台播放恢复。
-
-### 更新
-
-- 增加考试失败后的错题修正、答案记忆、有限次数重试和失败场次汇总。
-- 增加全能托管，按课程与考试顺序推进，并保存当前阶段。
-- 增加公需课分类遍历和考试重试次数设置。
-
-当前完成了 JavaScript 语法和 Git 差异格式检查；全能托管、后台播放及考试重试仍需真实登录环境验证。
-
-## 问题反馈与开发
-
-通过 [GitHub Issues](https://github.com/Cooanyh/zhiyeyaoshi/issues) 反馈问题，建议附上：
-
-- 使用的脚本名称、版本、浏览器和脚本管理器版本。
-- 所在平台、页面类型、复现步骤，以及预期和实际结果。
-- 隐藏个人信息后的截图或控制台报错。请勿提供密码、API Key、Cookie 或登录凭据。
-
-本项目为直接运行的用户脚本，无需构建。修改后可执行：
+用户脚本直接安装运行，无需构建。修改后可执行以下静态检查，并在获得授权的真实页面验证对应流程：
 
 ```powershell
 node --check .\zhiyeyaoshi.user.js
@@ -177,10 +42,8 @@ node --check .\JHL-zyys.user.js
 git diff --check
 ```
 
-静态检查不能替代真实页面验证。涉及播放器、页面跳转和考试流程的修改，应在获得授权的环境中核验。
-
 ## 使用边界与许可
 
-本项目用于个人学习和网页自动化研究，与学习平台无隶属关系。使用时请遵守平台规则，核验自动化结果，不用于未授权访问、恶意请求或其他违规用途。
+用于个人学习及网页自动化研究，与学习平台无隶属关系。请遵守平台规则，核验自动化结果，不用于未授权访问或恶意请求。
 
-自 1.2.13 起采用 [CC BY-NC-SA 4.0](LICENSE)：使用和修改需署名，禁止商业使用，衍生作品须以相同许可分享。更早版本的许可请查看对应历史版本。
+自 1.2.13 起采用 [CC BY-NC-SA 4.0](https://github.com/Cooanyh/zhiyeyaoshi/blob/main/LICENSE)：使用和修改需署名，禁止商业使用，衍生作品须以相同许可分享。更早版本请查看对应历史许可。

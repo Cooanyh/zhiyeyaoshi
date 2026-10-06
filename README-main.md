@@ -11,6 +11,8 @@
 支持 H5 视频倍速、全能托管和考试失败纠错重试。学习进度和考试成绩以平台记录为准。
 
 **如果进入的是 `sc.mtnet.com.cn`，请安装[金航联脚本](https://github.com/Cooanyh/zhiyeyaoshi/blob/main/README-jhl.md)。** 金航联版不支持有效的视频倍速，尚未同步全能托管、错题纠正与答案记忆等功能。两个脚本分别维护版本号，不能用版本数字大小判断功能领先程度。
+**请注意高亮平台为本脚本适用** 
+<img src="https://scriptcat.org/api/v2/resource/image/ypcGh6vXSUiophed" width="800" />
 
 ## 功能
 

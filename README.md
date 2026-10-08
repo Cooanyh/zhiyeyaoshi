@@ -15,6 +15,7 @@
 | 脚本 | 适用网站 | 独立说明 | 安装 |
 | --- | --- | --- | --- |
 | 主脚本 | `www.sclpa.cn`、`zyys.ihehang.com` | [主脚本 README](https://github.com/Cooanyh/zhiyeyaoshi/blob/main/README-main.md) | [GitHub](https://raw.githubusercontent.com/Cooanyh/zhiyeyaoshi/main/zhiyeyaoshi.user.js) · [脚本猫](https://scriptcat.org/zh-CN/script-show-page/3660) · [Greasy Fork](https://greasyfork.org/zh-CN/scripts/540285) |
+| 主脚本 Beta 1.4.0-beta.1 | `www.sclpa.cn`、`zyys.ihehang.com` | [测试版说明](https://github.com/Cooanyh/zhiyeyaoshi/blob/beta/1.4.0-beta.1/README-beta.md) | [安装测试版](https://raw.githubusercontent.com/Cooanyh/zhiyeyaoshi/beta/1.4.0-beta.1/zhiyeyaoshi-beta.user.js) |
 | 金航联脚本 | `sc.mtnet.com.cn` | [金航联 README](https://github.com/Cooanyh/zhiyeyaoshi/blob/main/README-jhl.md) | [GitHub](https://raw.githubusercontent.com/Cooanyh/zhiyeyaoshi/main/JHL-zyys.user.js) · [脚本猫](https://scriptcat.org/zh-CN/script-show-page/3827) |
 
 ## 两脚本功能对比

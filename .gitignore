@@ -1,3 +1,4 @@
 # Local progress records
 /doc/progress*.md
 /doc/PROGRESS*.md
+/node_modules/

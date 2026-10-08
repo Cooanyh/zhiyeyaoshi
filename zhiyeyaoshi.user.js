@@ -1,27 +1,36 @@
 // ==UserScript==
 // @name         四川省执业药师继续教育
 // @namespace    http://tampermonkey.net/
-// @version      1.3.7
-// @description  【1.3.7-beta.1 | H5 倍速修复】四川职业药师继续教育；稳定应用标准 HTML5 视频倍速；新增错题自动纠正(通过率提高)
+// @version      1.4.0
+// @description  四川省执业药师继续教育助手：视频与文章倍速、后台任务、全能托管、AI 答题纠错及异常提醒。
 // @author       Coren
 // @match        https://www.sclpa.cn/*
 // @match        https://zyys.ihehang.com/*
 // @grant        GM_xmlhttpRequest
 // @grant        GM_addStyle
+// @grant        unsafeWindow
 // @grant        GM_getValue
+// @grant        GM_notification
 // @grant        GM_setValue
 // @connect      api.deepseek.com
 // @connect      self
 // @inject-into  page
+// @run-at       document-start
 // @license CC BY-NC-SA 4.0
 // license: https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans
 // ==/UserScript==
 
 // Script execution starts here. This log should appear first in console if script loads.
-console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Continuing Education script.`);
+console.info('[执业药师] 主脚本已加载');
 
 (function() {
     'use strict';
+
+    if (window.__sclpaScriptInstance) return;
+    window.__sclpaScriptInstance = { version: '1.4.0' };
+
+    const debugEnabled = GM_getValue('sclpa_debug', false);
+    const debugLog = (...args) => { if (debugEnabled) console.debug(...args); };
 
     // ===================================================================================
     // --- 脚本配置 (Script Configuration) ---
@@ -35,7 +44,6 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
     const CONFIG = {
         // Use user-defined playback speed
         VIDEO_PLAYBACK_RATE: currentPlaybackRate,
-        TIME_ACCELERATION_RATE: currentPlaybackRate,
         AI_API_SETTINGS: {
             // IMPORTANT: Get API Key from storage
             API_KEY: aiApiKey,
@@ -48,12 +56,17 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
     let scriptMode = GM_getValue('sclpa_script_mode', 'video');
     let isVideoSpeedEngineInitialized = false;
     let refreshVideoSpeedEngine = null;
+    let disposeVideoSpeedEngine = null;
+    const backgroundPlaybackGuards = new Map();
+    let emptyCourseObservation = null;
     let unfinishedTabClicked = false; // Flag to track if "未完成" tab has been clicked in the current page session
     let isPopupBeingHandled = false;
     let isModePanelCreated = false;
     let currentPageHash = '';
     let isChangingChapter = false;
+    let isAiStyleInstalled = false;
     let isAiAnswerPending = false; // Flag to track if AI answer is currently being awaited
+    let aiBatchGeneration = 0;
     let currentQuestionBatchText = ''; // Renamed from currentQuestionText to reflect batch processing
     let isSubmittingExam = false; // Flag to indicate if exam submission process is ongoing
     // --- 考试自动重试闭环状态 (Exam auto-retry closed loop state) ---
@@ -64,6 +77,9 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
     // 上一轮作答的题目与答案组合（Map<题目文本, {answer, options, title}>），
     // 用于没有纠错复核页时把“刚刚的答案组合”回传 AI 修正。
     let lastAttemptData = new Map();
+    // 仅保留当前考试重试链；确认错答与未及格轮次分开记录。
+    const confirmedWrongAnswers = new Map();
+    const failedAttemptAnswers = new Map();
     // 考试批次结束提示相关状态
     let lastStartedExamSignature = ''; // 最近一次“开始考试”所在行的文本，用于记录失败场次与跳过已重试耗尽的场次
     let failedExamSummary = []; // 重试耗尽仍未通过的场次汇总
@@ -78,6 +94,11 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
     let publicCourseTraversalTarget = '';
     let publicCourseListActionPending = false;
     const exhaustedPublicCourseCategories = new Set();
+    const VIDEO_LOAD_TIMEOUT_MS = 45000;
+    const VIDEO_LOAD_MAX_RETRIES = 2;
+    const VIDEO_LOAD_FAILURES_KEY = 'sclpa_video_load_failures';
+    let videoLoadingState = null;
+    let videoLoadFailures = readVideoLoadFailures();
     // 全能托管状态会持久化，页面跳转或刷新后仍能从上一次阶段继续。
     const ALL_IN_ONE_PHASES = [
         { id: 'specialized-video', label: '专业课视频', url: 'https://zyys.ihehang.com/#/specialized', context: 'course' },
@@ -89,6 +110,271 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
     let isAllInOneMode = GM_getValue('sclpa_all_in_one_enabled', false);
     let allInOnePhase = GM_getValue('sclpa_all_in_one_phase', '');
     let allInOneTransitionPending = false;
+    const backgroundAlarmMessages = {
+        'video-stalled': '视频持续加载无进展，脚本正在尝试恢复。请留意学习进度。',
+        'video-skipped': '视频重试后仍无法播放，已暂时跳过；该视频仍未完成，请稍后处理。',
+        'video-stopped': '剩余视频加载失败，学习服务已暂停。请返回学习页检查并重试。',
+        'ai-failed': 'AI 未返回可用答案，当前试卷保留，请返回学习页处理。',
+        'ai-timeout': '等待 AI 答案超时，当前试卷保留，请返回学习页重试。',
+        'exam-unknown': '无法确认考试结果，自动跳转已停止，请返回学习页确认。',
+        'exam-failed': '存在重试后仍未通过的考试，请返回学习页检查。',
+        'scheduler-error': '后台任务执行异常，请返回学习页检查运行状态。',
+        'scheduler-fallback': '后台调度不可用，已退回普通计时；后台进度可能变慢，请检查学习页。',
+        'page-frozen': '浏览器冻结了后台学习页，学习将暂停；请返回学习页恢复。',
+        'test': '这是一条测试通知。点击通知可返回学习页面。'
+    };
+    const backgroundAlarmTimes = new Map();
+    let pendingAutomationNotice = null;
+    let automationNoticeTimer = null;
+    let backgroundNotificationSequence = 0;
+    const backgroundNotificationsPending = new Set();
+
+    const runtimeKeepAwake = createRuntimeKeepAwake();
+    const backgroundScheduler = createBackgroundScheduler();
+    const scriptSetTimeout = backgroundScheduler.setTimeout;
+    const scriptSetInterval = backgroundScheduler.setInterval;
+    const scriptClearTimeout = backgroundScheduler.clear;
+    const scriptClearInterval = backgroundScheduler.clear;
+
+    function createRuntimeKeepAwake() {
+        const status = { running: false, webLock: 'inactive', screenLock: 'inactive' };
+        let active = false;
+        let epoch = 0;
+        let webAbort = null;
+        let webRelease = null;
+        let screenSentinel = null;
+        let screenPending = false;
+        let webRetryAt = 0;
+        let screenRetryAt = 0;
+        const lockName = 'sclpa-study-runtime-' + (crypto.randomUUID?.() || Math.random().toString(36).slice(2));
+
+        function render() {
+            const node = document.getElementById('runtime-keep-awake-status');
+            if (!node) return;
+            node.textContent = !active ? '保活已释放（服务暂停）' :
+                '尝试保活：后台锁' + (status.webLock === 'held' ? '已持有' : '未持有') +
+                ' / 屏幕唤醒锁' + (status.screenLock === 'held' ? '已持有' : document.hidden ? '后台不可持有' : '未持有');
+        }
+        function releaseScreen() {
+            const sentinel = screenSentinel;
+            screenSentinel = null;
+            status.screenLock = 'inactive';
+            if (sentinel) Promise.resolve(sentinel.release()).catch(() => {});
+        }
+        function release() {
+            active = false;
+            status.running = false;
+            epoch++;
+            webAbort?.abort();
+            webAbort = null;
+            webRelease?.();
+            webRelease = null;
+            status.webLock = 'inactive';
+            releaseScreen();
+            render();
+        }
+        function requestWebLock() {
+            if (!active || webAbort || performance.now() < webRetryAt) return;
+            if (!navigator.locks?.request) { status.webLock = 'unsupported'; return; }
+            const generation = epoch;
+            const abort = new AbortController();
+            webAbort = abort;
+            status.webLock = 'pending';
+            navigator.locks.request(lockName, { mode: 'shared', signal: abort.signal }, async lock => {
+                if (!lock || !active || generation !== epoch) return;
+                status.webLock = 'held';
+                render();
+                await new Promise(resolve => { webRelease = resolve; });
+            }).catch(() => {
+                if (active && generation === epoch) status.webLock = 'unavailable';
+            }).finally(() => {
+                if (webAbort !== abort) return;
+                webAbort = null;
+                webRelease = null;
+                status.webLock = active ? 'unavailable' : 'inactive';
+                webRetryAt = performance.now() + 30000;
+                render();
+            });
+        }
+        async function requestScreenLock() {
+            if (!active || document.hidden || screenPending || screenSentinel || performance.now() < screenRetryAt) return;
+            if (!navigator.wakeLock?.request) { status.screenLock = 'unsupported'; return; }
+            const generation = epoch;
+            screenPending = true;
+            status.screenLock = 'pending';
+            try {
+                const sentinel = await navigator.wakeLock.request('screen');
+                if (!active || generation !== epoch || document.hidden) {
+                    await sentinel.release();
+                    return;
+                }
+                screenSentinel = sentinel;
+                status.screenLock = 'held';
+                sentinel.addEventListener('release', () => {
+                    if (screenSentinel !== sentinel) return;
+                    screenSentinel = null;
+                    status.screenLock = active ? 'released' : 'inactive';
+                    screenRetryAt = performance.now() + 30000;
+                    render();
+                });
+            } catch (_) {
+                if (active && generation === epoch) status.screenLock = 'unavailable';
+                screenRetryAt = performance.now() + 30000;
+            } finally {
+                screenPending = false;
+                render();
+            }
+        }
+        function sync() {
+            if (!isServiceActive) { if (active) release(); else render(); return; }
+            if (!active) { active = true; status.running = true; epoch++; webRetryAt = 0; screenRetryAt = 0; }
+            requestWebLock();
+            requestScreenLock();
+            render();
+        }
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) releaseScreen();
+            else { screenRetryAt = 0; sync(); }
+        });
+        document.addEventListener('resume', sync);
+        window.addEventListener('pageshow', sync);
+        window.addEventListener('pagehide', release);
+        window.__sclpaRuntimeKeepAwake = status;
+        return { sync, release };
+    }
+
+    function createBackgroundScheduler() {
+        const nativeTimeout = window.setTimeout.bind(window);
+        const nativeClearTimeout = window.clearTimeout.bind(window);
+        const jobs = new Map();
+        const status = { mode: 'native', frozen: false, callbacks: 0, pending: 0 };
+        let sequence = 0;
+        let worker = null;
+        let workerUrl = null;
+        let fallbackTimer = null;
+        let dispatching = false;
+        const clock = () => performance.now();
+
+        function arm() {
+            status.pending = jobs.size;
+            if (dispatching) return;
+            let next = Infinity;
+            if (!status.frozen) for (const job of jobs.values()) next = Math.min(next, job.due);
+            const delay = Number.isFinite(next) ? Math.max(10, next - clock()) : null;
+            if (worker) {
+                worker.postMessage({ delay });
+            } else {
+                if (fallbackTimer !== null) nativeClearTimeout(fallbackTimer);
+                fallbackTimer = delay === null ? null : nativeTimeout(dispatch, delay);
+            }
+        }
+
+        function dispatch() {
+            if (status.frozen) return;
+            const now = clock();
+            dispatching = true;
+            for (const [id, job] of Array.from(jobs)) {
+                if (!jobs.has(id) || job.due > now) continue;
+                if (job.interval) job.due = now + job.delay;
+                else jobs.delete(id);
+                try {
+                    job.callback.apply(window, job.args);
+                    status.callbacks++;
+                } catch (error) {
+                    console.error('[Script] 后台任务执行失败：', error);
+                    notifyBackgroundException('scheduler-error');
+                }
+            }
+            dispatching = false;
+            arm();
+        }
+
+        function releaseWorkerUrl() {
+            if (workerUrl) URL.revokeObjectURL(workerUrl);
+            workerUrl = null;
+        }
+        try {
+            workerUrl = URL.createObjectURL(new Blob([
+                "let timer=null;onmessage=e=>{if(timer!==null)clearTimeout(timer);timer=null;if(e.data.delay!==null)timer=setTimeout(()=>postMessage('tick'),e.data.delay)};postMessage('ready');"
+            ], { type: 'text/javascript' }));
+            worker = new Worker(workerUrl);
+            status.mode = 'worker';
+            worker.onmessage = event => {
+                if (event.data === 'ready') releaseWorkerUrl();
+                else if (event.data === 'tick') dispatch();
+            };
+            worker.onerror = () => {
+                worker.terminate();
+                worker = null;
+                status.mode = 'native';
+                releaseWorkerUrl();
+                console.warn('[Script] 当前页面不允许后台调度，已退回普通计时。');
+                notifyBackgroundException('scheduler-fallback');
+                arm();
+            };
+        } catch (error) {
+            worker = null;
+            notifyBackgroundException('scheduler-fallback');
+            releaseWorkerUrl();
+        }
+
+        function schedule(callback, delay, interval, args) {
+            if (typeof callback !== 'function') throw new TypeError('后台任务必须是函数');
+            const id = --sequence;
+            const milliseconds = Math.max(interval ? 10 : 0, Number(delay) || 0);
+            jobs.set(id, { callback, args, delay: milliseconds, interval, due: clock() + milliseconds });
+            arm();
+            return id;
+        }
+        function clear(id) {
+            jobs.delete(id);
+            arm();
+        }
+        function resetArticleClocks() {
+            for (const record of window.__sclpaArticleTimingEngine?.records?.values() || []) {
+                record.lastTick = clock();
+                record.carry = 0;
+            }
+        }
+        document.addEventListener('freeze', () => {
+            notifyBackgroundException('page-frozen');
+            status.frozen = true;
+            resetArticleClocks();
+            arm();
+        });
+        document.addEventListener('resume', () => {
+            status.frozen = false;
+            resetArticleClocks();
+            const now = clock();
+            for (const job of jobs.values()) if (job.interval) job.due = now + job.delay;
+            arm();
+        });
+        const resumeScheduler = () => {
+            if (status.frozen) {
+                status.frozen = false;
+                resetArticleClocks();
+                const now = clock();
+                for (const job of jobs.values()) if (job.interval) job.due = now + job.delay;
+            }
+            arm();
+        };
+        document.addEventListener('visibilitychange', () => { if (!document.hidden) resumeScheduler(); });
+        window.addEventListener('pageshow', resumeScheduler);
+        window.addEventListener('pagehide', event => {
+            if (event.persisted) return;
+            jobs.clear();
+            status.pending = 0;
+            worker?.terminate();
+            if (fallbackTimer !== null) nativeClearTimeout(fallbackTimer);
+            releaseWorkerUrl();
+        });
+        window.__sclpaBackgroundScheduler = status;
+        return {
+            setTimeout: (callback, delay, ...args) => schedule(callback, delay, false, args),
+            setInterval: (callback, delay, ...args) => schedule(callback, delay, true, args),
+            clear
+        };
+    }
 
     // ===================================================================================
     // --- 辅助函数 (Helper Functions) ---
@@ -115,7 +401,7 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
      */
     function clickElement(element) {
         if (element && typeof element.click === 'function') {
-            console.log('[Script] Clicking element:', element);
+            debugLog('[Script] Clicking element:', element);
             element.click();
         } else {
             console.warn('[Script] Attempted to click a non-existent or unclickable element:', element);
@@ -132,7 +418,7 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
         const original = object[methodName];
         if (typeof original === 'function') {
             object[methodName] = hooker(original);
-            console.log(`[Script] Successfully hooked ${methodName}`);
+            debugLog(`[Script] Successfully hooked ${methodName}`);
         } else {
             console.warn(`[Script] Failed to hook ${methodName}: original is not a function.`);
         }
@@ -161,21 +447,63 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
     // ===================================================================================
 
     const EXAM_CORRECTION_SYSTEM_PROMPT =
-        '你是执业药师考试答题助手。以下是本次考试中回答错误的题目。' +
-        '请先判断每道题是单选题还是多选题：' +
-        '若为单选题，上次所选选项必定是错误的，绝不能再次选择该选项；' +
-        '若为多选题，上次答案组合有问题（可能缺少正确选项，也可能包含错误选项），请重新判断整个答案组合。' +
-        '只输出答案：一行一道，格式为“序号.字母选项”（多选连续写字母，如 2.ABC）。' +
-        '不要输出任何解释、标点或其他文字。';
+        '你是执业药师考试答题助手。以下题目已由复核页确认回答错误，并附有历轮确认错答。' +
+        '单选题排除所有已确认错误的选项；多选题排除已确认错误的完整组合，但不能据此认定组合中每个选项都错误。' +
+        '未及格轮次作答仅供参考，不代表每题均错误。请重新判断并给出答案。' +
+        '只输出一行一道，格式为“序号.字母选项”（多选连续字母），不要输出解释。';
 
-    // 无纠错复核页时的修正提示词：直接把上一轮作答的答案组合回传 AI。
     const EXAM_NO_REVIEW_CORRECTION_SYSTEM_PROMPT =
-        '你是执业药师考试答题助手。以下是刚刚提交但被判定为不及格的考试中，各题的上次答案。' +
-        '请先判断每道题是单选题还是多选题：' +
-        '若为单选题，上次所选选项必定是错误的，绝不能再次选择该选项；' +
-        '若为多选题，上次答案组合有问题（可能缺少正确选项，也可能包含错误选项），请重新判断整个答案组合。' +
-        '只输出答案：一行一道，格式为“序号.字母选项”（多选连续写字母，如 2.ABC）。' +
-        '不要输出任何解释、标点或其他文字。';
+        '你是执业药师考试答题助手。以下提供历次未及格考试的作答记录；缺少逐题复核，不能把每道题的历史选项都认定为错误。' +
+        '仅排除另行标明的已确认错答：单选排除对应选项，多选排除完整组合，不能排除组合中的所有单个选项。' +
+        '结合所有历轮记录重新判断答案。只输出一行一道，格式为“序号.字母选项”（多选连续字母），不要输出解释。';
+
+    function normalizeExamRetryLimit(value) {
+        const parsed = Number(value);
+        return value === '' || value === null || !Number.isFinite(parsed) ? 3 : Math.max(0, Math.min(3, Math.trunc(parsed)));
+    }
+
+    function questionHistoryKey(question) {
+        return JSON.stringify([question.title, question.options]);
+    }
+
+    function canonicalAnswer(value) {
+        return [...new Set(normalizeAnswerLetters(value))].sort().join('');
+    }
+
+    function recordAttemptAnswer(history, question, answer) {
+        const letters = canonicalAnswer(answer);
+        if (!letters) return;
+        const key = questionHistoryKey(question);
+        const entries = history.get(key) || [];
+        if (!entries.some(entry => entry.round === examAttemptCount && entry.answer === letters)) {
+            entries.push({ round: examAttemptCount, answer: letters });
+            history.set(key, entries);
+        }
+    }
+
+    function describeAttemptHistory(history, question) {
+        return (history.get(questionHistoryKey(question)) || [])
+            .map(entry => '第' + entry.round + '轮：' + entry.answer).join('；') || '无';
+    }
+
+    function isConfirmedWrongAnswer(question, answer) {
+        const letters = canonicalAnswer(answer);
+        return (confirmedWrongAnswers.get(questionHistoryKey(question)) || []).some(entry => entry.answer === letters);
+    }
+
+    function buildRetryHistoryContext(items) {
+        const lines = Array.from(items).map((item, index) => {
+            const question = {
+                title: getNormalizedQuestionTitle(item),
+                options: Array.from(item.querySelectorAll('.examination-check-item')).map(option => option.innerText.trim()).filter(Boolean)
+            };
+            const wrong = describeAttemptHistory(confirmedWrongAnswers, question);
+            const failed = describeAttemptHistory(failedAttemptAnswers, question);
+            return wrong === '无' && failed === '无' ? '' :
+                '第' + (index + 1) + '题：已确认错答：' + wrong + '；未及格轮次作答（未逐题确认）：' + failed;
+        }).filter(Boolean);
+        return lines.length ? '\n\n重试历史：单选排除已确认错答；多选只排除已确认错误的完整组合。未逐题确认的作答仅供参考。\n' + lines.join('\n') : '';
+    }
 
     function loadExamAnswerMemory() {
         try {
@@ -196,11 +524,14 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
     }
 
     function resetExamRetryState(reason) {
-        if (reason) console.log(`[Script] 重置考试自动重试状态：${reason}`);
+        aiBatchGeneration++;
+        if (reason) debugLog(`[Script] 重置考试自动重试状态：${reason}`);
         examAttemptCount = 0;
         examRetryChainActive = false;
         isHandlingExamResult = false;
         lastAttemptData.clear();
+        confirmedWrongAnswers.clear();
+        failedAttemptAnswers.clear();
         if (examAnswerMemory.size > 0) {
             examAnswerMemory.clear();
             persistExamAnswerMemory();
@@ -264,11 +595,11 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
     function waitForReviewPage(timeoutMs = 12000, pollMs = 500) {
         return new Promise((resolve) => {
             const startedAt = Date.now();
-            const timer = setInterval(() => {
+            const timer = scriptSetInterval(() => {
                 const reviewVisible = document.querySelector('.examination-body-item .details-state') ||
                     document.querySelector('.examination-body-item .examination-details em');
                 if (reviewVisible || Date.now() - startedAt > timeoutMs) {
-                    clearInterval(timer);
+                    scriptClearInterval(timer);
                     resolve(Boolean(reviewVisible));
                 }
             }, pollMs);
@@ -283,7 +614,7 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
         if (isHandlingExamResult) return;
         isHandlingExamResult = true;
 
-        const maxRetries = Math.max(0, parseInt(GM_getValue('sclpa_exam_max_retries', 3), 10) || 0);
+        const maxRetries = normalizeExamRetryLimit(GM_getValue('sclpa_exam_max_retries', 3));
         if (maxRetries <= 0 || examAttemptCount >= maxRetries) {
             console.warn(`[Script] 考试未通过，已达自动重试上限（${examAttemptCount}/${maxRetries}），放弃该场继续下一场。`);
             recordFailedExamAndContinue();
@@ -294,13 +625,13 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
         isAiAnswerPending = false;
         examRetryChainActive = true;
         examAttemptCount++;
-        console.log(`[Script] 检测到考试未通过，启动自动重试闭环（第 ${examAttemptCount}/${maxRetries} 次）。`);
+        debugLog(`[Script] 检测到考试未通过，启动自动重试闭环（第 ${examAttemptCount}/${maxRetries} 次）。`);
 
         // 若复核页已经可见（部分平台交卷后直接展示错题），则无需点击“纠错查看”。
         const reviewAlreadyVisible = Array.from(document.querySelectorAll('.examination-body-item .details-state'))
             .some(element => isElementVisible(element));
         if (reviewAlreadyVisible) {
-            console.log('[Script] 纠错复核页已可见，直接提取错题。');
+            debugLog('[Script] 纠错复核页已可见，直接提取错题。');
             collectReviewAnswersAndCorrect();
             return;
         }
@@ -314,10 +645,12 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
             attemptRetryWithoutReview();
             return;
         }
-        console.log('[Script] 点击“纠错查看 / 查看答案”，进入纠错复核页提取错题。');
+        debugLog('[Script] 点击“纠错查看 / 查看答案”，进入纠错复核页提取错题。');
         clickElement(reviewButton);
 
+        const reviewGeneration = aiBatchGeneration;
         waitForReviewPage().then(found => {
+            if (!isServiceActive || aiBatchGeneration !== reviewGeneration) return;
             if (!found) {
                 console.warn('[Script] 未检测到纠错复核页，改用上一轮答案组合请求 AI 修正。');
                 attemptRetryWithoutReview();
@@ -332,6 +665,9 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
      * 将错题回传 AI 获取修正答案，然后点击“返回”回到考试列表继续下一场。
      */
     function collectReviewAnswersAndCorrect() {
+        const correctionGeneration = aiBatchGeneration;
+        const correctionRoute = window.location.hash;
+        const correctionCurrent = () => isServiceActive && aiBatchGeneration === correctionGeneration && window.location.hash === correctionRoute;
         const items = Array.from(document.querySelectorAll('.examination-body-item'));
         if (items.length === 0) {
             console.warn('[Script] 纠错复核页没有题目元素，改用上一轮答案组合请求 AI 修正。');
@@ -358,20 +694,25 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
         });
 
         const wrongQuestions = reviewQuestions.filter(question => question.isWrong);
+        wrongQuestions.forEach(question => {
+            recordAttemptAnswer(confirmedWrongAnswers, question, question.previousAnswer);
+            examAnswerMemory.delete(question.title);
+        });
         if (wrongQuestions.length === 0) {
-            console.log('[Script] 纠错复核页未标记“回答错误”的题目，直接返回考试列表。');
+            debugLog('[Script] 纠错复核页未标记“回答错误”的题目，直接返回考试列表。');
             persistExamAnswerMemory();
             returnToExamListAfterReview();
             return;
         }
 
-        console.log(`[Script] 发现 ${wrongQuestions.length} 道错题，请求 AI 修正答案...`);
+        debugLog(`[Script] 发现 ${wrongQuestions.length} 道错题，请求 AI 修正答案...`);
         askAiForAnswer(buildCorrectionPrompt(wrongQuestions), EXAM_CORRECTION_SYSTEM_PROMPT).then(correctionText => {
+            if (!correctionCurrent()) return;
             const correctedMap = parseAnswersToMap(correctionText);
             let applied = 0;
             wrongQuestions.forEach(question => {
                 const letters = correctedMap.get(question.index);
-                if (letters) {
+                if (letters && !isConfirmedWrongAnswer(question, letters)) {
                     examAnswerMemory.set(question.title, letters);
                     applied++;
                 } else {
@@ -379,9 +720,10 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
                 }
             });
             persistExamAnswerMemory();
-            console.log(`[Script] AI 修正完成，已更新 ${applied} 道错题答案，返回考试列表继续作答。`);
+            debugLog(`[Script] AI 修正完成，已更新 ${applied} 道错题答案，返回考试列表继续作答。`);
             returnToExamListAfterReview();
         }).catch(error => {
+            if (!correctionCurrent()) return;
             console.warn('[Script] AI 纠错请求失败，放弃该场继续下一场：', error);
             recordFailedExamAndContinue();
         });
@@ -390,10 +732,10 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
     function buildCorrectionPrompt(wrongQuestions) {
         const lines = wrongQuestions.map(question => {
             const optionLines = question.options.map(option => `  ${option}`).join('\n');
-            return `第${question.index}题：${question.title}\n选项：\n${optionLines}\n上次答案：${question.previousAnswer || '未提供'}（单选：此选项必错；多选：组合有误）`;
+            return `第${question.index}题：${question.title}\n选项：\n${optionLines}\n历轮已确认错答：${describeAttemptHistory(confirmedWrongAnswers, question)}\n未及格轮次作答（未逐题确认）：${describeAttemptHistory(failedAttemptAnswers, question)}`;
         });
         return [
-            '以下是本次考试中回答错误的题目。每题的上次答案均有问题：单选题勿再选上次选项，多选题请重新判断整个答案组合。',
+            '以下题目由复核页确认答错；请结合所有历轮记录排除已确认错答，重新判断答案。',
             '',
             ...lines,
             '',
@@ -406,12 +748,16 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
      */
     function buildNoReviewCorrectionPrompt() {
         const entries = Array.from(lastAttemptData.values());
+        entries.forEach(data => {
+            recordAttemptAnswer(failedAttemptAnswers, data, data.answer);
+            examAnswerMemory.delete(data.title);
+        });
         const lines = entries.map((data, index) => {
             const optionLines = data.options.map(option => `  ${option}`).join('\n');
-            return `第${index + 1}题：${data.title}\n选项：\n${optionLines}\n上次答案：${data.answer}`;
+            return `第${index + 1}题：${data.title}\n选项：\n${optionLines}\n历轮未及格考试作答（未逐题确认）：${describeAttemptHistory(failedAttemptAnswers, data)}\n历轮已确认错答：${describeAttemptHistory(confirmedWrongAnswers, data)}`;
         });
         return [
-            '以下是刚刚提交但未及格的答案组合，请按规则修正（单选勿再选上次选项，多选重新判断整个组合）。',
+            '以下是历次未及格考试的作答记录。缺少逐题复核，不能把所有历史作答都认定为错误；仅排除已确认错答。',
             '',
             ...lines,
             '',
@@ -424,18 +770,22 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
      * 返回考试列表从“待考试”第一个重新作答。
      */
     function attemptRetryWithoutReview() {
+        const correctionGeneration = aiBatchGeneration;
+        const correctionRoute = window.location.hash;
+        const correctionCurrent = () => isServiceActive && aiBatchGeneration === correctionGeneration && window.location.hash === correctionRoute;
         if (lastAttemptData.size === 0) {
             console.warn('[Script] 无纠错复核页且无上一轮作答记录，放弃该场继续下一场。');
             recordFailedExamAndContinue();
             return;
         }
-        console.log(`[Script] 未找到纠错复核页，改用上一轮答案组合请求 AI 修正（共 ${lastAttemptData.size} 题）。`);
+        debugLog(`[Script] 未找到纠错复核页，改用上一轮答案组合请求 AI 修正（共 ${lastAttemptData.size} 题）。`);
         askAiForAnswer(buildNoReviewCorrectionPrompt(), EXAM_NO_REVIEW_CORRECTION_SYSTEM_PROMPT).then(correctionText => {
+            if (!correctionCurrent()) return;
             const correctedMap = parseAnswersToMap(correctionText);
             let applied = 0;
             Array.from(lastAttemptData.values()).forEach((data, index) => {
                 const letters = correctedMap.get(index + 1);
-                if (letters) {
+                if (letters && !isConfirmedWrongAnswer(data, letters)) {
                     examAnswerMemory.set(data.title, letters);
                     applied++;
                 } else {
@@ -443,9 +793,10 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
                 }
             });
             persistExamAnswerMemory();
-            console.log(`[Script] 无复核页纠错完成，已更新 ${applied} 道题答案，返回考试列表继续作答。`);
+            debugLog(`[Script] 无复核页纠错完成，已更新 ${applied} 道题答案，返回考试列表继续作答。`);
             returnToExamListAfterReview();
         }).catch(error => {
+            if (!correctionCurrent()) return;
             console.warn('[Script] AI 纠错请求失败，放弃该场继续下一场：', error);
             recordFailedExamAndContinue();
         });
@@ -460,6 +811,7 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
         const signature = lastStartedExamSignature || '';
         const displayName = signature ? signature.split('\n')[0].trim().slice(0, 50) : '未知考试';
         if (signature) exhaustedExamSignatures.add(signature);
+        notifyBackgroundException('exam-failed');
         failedExamSummary.push({ name: displayName, attempts: examAttemptCount });
         console.warn(`[Script] 已记录失败场次：${displayName}（重试 ${examAttemptCount} 次），继续处理其他考试。`);
         resetExamRetryState('考试重试耗尽，放弃该场');
@@ -475,10 +827,10 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
         if (failedExamSummary.length > 0) {
             const names = failedExamSummary.map(item => item.name || '未知考试').join('、');
             console.warn(`[Script] 全部考试处理完成，${failedExamSummary.length} 场重试后仍未通过（平台可能要求重新学习）：${names}`);
-            alert(`所有考试处理完成。\n\n${failedExamSummary.length} 场考试多次重试后仍未通过，平台可能要求重新学习对应课程：\n${names}`);
+            showAutomationNotice(`所有考试处理完成。\n\n${failedExamSummary.length} 场考试多次重试后仍未通过，平台可能要求重新学习对应课程：\n${names}`);
             failedExamSummary = [];
         } else {
-            console.log('[Script] 全部考试处理完成，本批次均已通过。');
+            debugLog('[Script] 全部考试处理完成，本批次均已通过。');
         }
     }
 
@@ -498,7 +850,7 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
             findButtonByExactText('重新作答') ||
             findButtonByExactText('重考');
         if (backButton) {
-            console.log('[Script] 点击“返回”，回到考试列表继续下一场作答。');
+            debugLog('[Script] 点击“返回”，回到考试列表继续下一场作答。');
             clickElement(backButton);
         } else {
             console.warn('[Script] 未找到“返回”按钮，直接导航回考试列表。');
@@ -507,20 +859,20 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
         currentQuestionBatchText = ''; // 确保新一轮题目会被重新处理
 
         // 兜底：点击“返回”后若仍停留在考试页（例如回到结果页），强制返回考试列表。
-        setTimeout(() => {
+        scriptSetTimeout(() => {
             if (window.location.hash.toLowerCase().includes('/examination')) {
-                console.log(`[Script] 点击“返回”后仍停留在考试页，直接导航回考试列表：${currentExamListRoute}`);
+                debugLog(`[Script] 点击“返回”后仍停留在考试页，直接导航回考试列表：${currentExamListRoute}`);
                 window.location.href = currentExamListRoute;
             }
         }, 2500);
 
         const startedAt = Date.now();
-        const releaseTimer = setInterval(() => {
+        const releaseTimer = scriptSetInterval(() => {
             const reviewVisible = Array.from(document.querySelectorAll('.examination-body-item .details-state'))
                 .find(element => element.offsetParent !== null);
             const failureDialogVisible = hasFailedExamResult();
             if ((!reviewVisible && !failureDialogVisible) || Date.now() - startedAt > 15000) {
-                clearInterval(releaseTimer);
+                scriptClearInterval(releaseTimer);
                 isHandlingExamResult = false;
                 if (reviewVisible || failureDialogVisible) {
                     console.warn('[Script] 等待离开复核页超时，已放行失败处理（若失败弹窗仍存在将再次进入重试链）。');
@@ -538,12 +890,12 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
         GM_setValue('sclpa_nav_context', 'exam');
         currentNavContext = 'exam';
 
-        setTimeout(() => {
+        scriptSetTimeout(() => {
             if (window.location.hash.toLowerCase().includes('/examination')) {
-                console.log(`[Script] 考试结果页未自动跳转，直接返回考试列表：${currentExamListRoute}`);
+                debugLog(`[Script] 考试结果页未自动跳转，直接返回考试列表：${currentExamListRoute}`);
                 window.location.href = currentExamListRoute;
             } else {
-                console.log('[Script] 考试完成后平台已自动跳转，主循环继续。');
+                debugLog('[Script] 考试完成后平台已自动跳转，主循环继续。');
             }
         }, 2500);
     }
@@ -570,7 +922,7 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
     function schedulePublicCourseListAction(callback, delay) {
         if (publicCourseListActionPending) return;
         publicCourseListActionPending = true;
-        setTimeout(() => {
+        scriptSetTimeout(() => {
             publicCourseListActionPending = false;
             callback();
         }, delay);
@@ -601,11 +953,11 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
         );
 
         if (!nextCategory) {
-            console.log(`[Script] 公需课-${publicTarget} 的所有分类均未找到未完成内容，停止切换。`);
+            debugLog(`[Script] 公需课-${publicTarget} 的所有分类均未找到未完成内容，停止切换。`);
             return false;
         }
 
-        console.log(`[Script] 当前分类“${currentCategory}”没有未完成内容，切换到“${nextCategory.innerText.trim()}”。`);
+        debugLog(`[Script] 当前分类“${currentCategory}”没有未完成内容，切换到“${nextCategory.innerText.trim()}”。`);
         clickElement(nextCategory);
         schedulePublicCourseListAction(() => handleCourseListPage('公需课'), 1500);
         return true;
@@ -617,6 +969,114 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
 
     function getAllInOnePhase() {
         return ALL_IN_ONE_PHASES.find(phase => phase.id === allInOnePhase) || null;
+    }
+
+    async function notifyBackgroundException(kind, force = false) {
+        const message = backgroundAlarmMessages[kind];
+        if (!message || (!force && !document.hidden)) return false;
+        const now = Date.now();
+        let last = backgroundAlarmTimes.get(kind) || 0;
+        try { last = Math.max(last, Number(sessionStorage.getItem('sclpa-alarm:' + kind)) || 0); } catch (_) {}
+        if (!force && (now - last < 300000 || backgroundNotificationsPending.has(kind))) return false;
+        if (!force) backgroundNotificationsPending.add(kind);
+        showAutomationNotice(message);
+        const tag = 'sclpa-learning-' + kind + '-' + now + '-' + (++backgroundNotificationSequence);
+        const markAccepted = () => {
+            if (force) return;
+            const acceptedAt = Date.now();
+            backgroundAlarmTimes.set(kind, acceptedAt);
+            try { sessionStorage.setItem('sclpa-alarm:' + kind, String(acceptedAt)); } catch (_) {}
+        };
+        const clearFailedCooldown = () => {
+            if (force) return;
+            backgroundAlarmTimes.delete(kind);
+            try { sessionStorage.removeItem('sclpa-alarm:' + kind); } catch (_) {}
+        };
+        const focusPage = () => { window.focus(); };
+        const nativeNotification = () => {
+            try {
+                if (typeof Notification !== 'function' || Notification.permission !== 'granted') return false;
+                const notice = new Notification('执业药师：学习异常提醒', { body: message, tag, requireInteraction: true, silent: false });
+                notice.onclick = () => { focusPage(); notice.close(); };
+                notice.onerror = () => {
+                    clearFailedCooldown();
+                    showAutomationNotice(message + '\n桌面通知未能显示，请检查浏览器和系统通知设置。');
+                };
+                return true;
+            } catch (_) { return false; }
+        };
+        try {
+            if (typeof GM_notification === 'function') {
+                let waitTimer = null;
+                try {
+                    // 等脚本初始化完成后使用内部调度，避免启动阶段回退通知触及未初始化的计时器。
+                    await Promise.resolve();
+                    const result = await Promise.race([
+                        Promise.resolve(GM_notification({ title: '执业药师：学习异常提醒', text: message, tag,
+                            silent: false, highlight: true, timeout: 0, onclick: focusPage })),
+                        new Promise((_, reject) => {
+                            waitTimer = scriptSetTimeout(() => reject(new Error('notification request timeout')), 5000);
+                        })
+                    ]);
+                    if (result !== false) { markAccepted(); return true; }
+                } catch (_) {
+                    // 失败时尝试已授权的原生通知，不将失败写入去重记录。
+                } finally {
+                    if (waitTimer !== null) scriptClearTimeout(waitTimer);
+                }
+            }
+            if (nativeNotification()) { markAccepted(); return true; }
+            showAutomationNotice(message + '\n桌面通知不可用，请点击设置中的“测试桌面通知”检查权限。');
+            return false;
+        } finally {
+            if (!force) backgroundNotificationsPending.delete(kind);
+        }
+    }
+
+    function dismissAutomationNotice(expected = pendingAutomationNotice) {
+        if (expected !== pendingAutomationNotice) return;
+        pendingAutomationNotice = null;
+        if (automationNoticeTimer !== null) scriptClearTimeout(automationNoticeTimer);
+        automationNoticeTimer = null;
+        document.getElementById('sclpa-automation-notice')?.remove();
+    }
+
+    function renderAutomationNotice() {
+        const state = pendingAutomationNotice;
+        if (!state) return;
+        if (state.hideAt && state.hideAt <= Date.now()) { dismissAutomationNotice(state); return; }
+        const host = document.querySelector('#tab-control') || document.body;
+        if (!host) return;
+        let notice = document.getElementById('sclpa-automation-notice');
+        if (!notice) {
+            notice = document.createElement('div');
+            notice.id = 'sclpa-automation-notice';
+            notice.setAttribute('role', 'status');
+            notice.style.cssText = 'margin:12px 0;padding:12px;background:#E8F3FF;border:1px solid #0078D4;border-radius:6px;white-space:pre-wrap;';
+        }
+        host.appendChild(notice);
+        notice.replaceChildren();
+        const text = document.createElement('div');
+        text.textContent = state.message;
+        notice.appendChild(text);
+        if (!state.hideAt) {
+            const close = document.createElement('button');
+            close.type = 'button';
+            close.textContent = '我知道了';
+            close.style.cssText = 'margin-top:10px;padding:6px 12px;cursor:pointer;';
+            close.onclick = () => dismissAutomationNotice(state);
+            notice.appendChild(close);
+        } else if (automationNoticeTimer === null) {
+            automationNoticeTimer = scriptSetTimeout(() => dismissAutomationNotice(state), Math.max(0, state.hideAt - Date.now()));
+        }
+    }
+
+    function showAutomationNotice(message, { autoHideMs = 0 } = {}) {
+        if (automationNoticeTimer !== null) scriptClearTimeout(automationNoticeTimer);
+        automationNoticeTimer = null;
+        pendingAutomationNotice = { message, hideAt: autoHideMs > 0 ? Date.now() + autoHideMs : 0 };
+        console.info('[Script] ' + message);
+        renderAutomationNotice();
     }
 
     function updateAllInOneButton() {
@@ -632,7 +1092,7 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
 
     function stopAllInOneMode(reason = '已停止') {
         if (!isAllInOneMode && !allInOnePhase) return;
-        console.log(`[Script] 全能托管${reason}。`);
+        debugLog(`[Script] 全能托管${reason}。`);
         isAllInOneMode = false;
         allInOnePhase = '';
         allInOneTransitionPending = false;
@@ -650,9 +1110,9 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
         GM_setValue('sclpa_nav_context', phase.context);
         if (phase.publicTarget) GM_setValue('sclpa_public_target', phase.publicTarget);
         updateAllInOneButton();
-        console.log(`[Script] 全能托管进入阶段：${phase.label}。`);
+        debugLog(`[Script] 全能托管进入阶段：${phase.label}。`);
         // 公需课视频与文章共用同一 SPA 路由；同路由切换时不能等待 hashchange。
-        const targetHash = phase.url.split('#')[1].toLowerCase();
+        const targetHash = new URL(phase.url).hash.toLowerCase();
         if (window.location.hash.toLowerCase() === targetHash) {
             allInOneTransitionPending = false;
             return true;
@@ -661,7 +1121,29 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
         return true;
     }
 
+    function setRuntimeServiceActive(active, message = '') {
+        isServiceActive = Boolean(active);
+        if (!isServiceActive) {
+            aiBatchGeneration++;
+            isAiAnswerPending = false;
+            isSubmittingExam = false;
+            isHandlingExamResult = false;
+            currentQuestionBatchText = '';
+        }
+        GM_setValue('sclpa_service_active', isServiceActive);
+        if (!isServiceActive) disposeVideoSpeedEngine?.();
+        runtimeKeepAwake.sync();
+        const button = document.getElementById('service-toggle-btn');
+        if (button) { button.textContent = isServiceActive ? '⏸️ 暂停服务' : '▶️ 启动服务'; button.className = 'panel-btn ' + (isServiceActive ? 'service-btn-active' : 'service-btn-paused'); }
+        const dot = document.getElementById('status-dot');
+        if (dot) dot.className = 'status-dot ' + (isServiceActive ? 'active' : 'paused');
+        const status = document.getElementById('status-text');
+        if (status) status.textContent = message || (isServiceActive ? '服务运行中' : '服务已暂停');
+        if (isServiceActive) initializeEnhancedVideoSpeedEngine();
+    }
+
     function startAllInOneMode() {
+        setRuntimeServiceActive(true);
         isAllInOneMode = true;
         allInOnePhase = ALL_IN_ONE_PHASES[0].id;
         allInOneTransitionPending = false;
@@ -683,7 +1165,11 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
         const nextPhase = ALL_IN_ONE_PHASES[currentIndex + 1];
         if (!nextPhase) {
             stopAllInOneMode('所有阶段已完成');
-            alert('✅ 全能托管已完成：专业课视频、公需课视频、公需课文章及两类考试均已处理完毕。');
+            setRuntimeServiceActive(false, '全部任务已处理，请核对学习进度和考试结果');
+            const failures = failedExamSummary.length;
+            showAutomationNotice(failures ? '全能托管已处理完毕，但仍有 ' + failures + ' 场考试未通过，请核对平台记录并重新处理。' : '✅ 全能托管已处理完毕，请核对平台的学习进度和考试结果。');
+            if (failures) notifyBackgroundException('exam-failed');
+            failedExamSummary = [];
             return true;
         }
 
@@ -691,7 +1177,7 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
         GM_setValue('sclpa_all_in_one_phase', allInOnePhase);
         publicCourseTraversalTarget = '';
         exhaustedPublicCourseCategories.clear();
-        console.log(`[Script] 全能托管：${expectedPhase} 无待处理内容，切换到 ${nextPhase.label}。`);
+        debugLog(`[Script] 全能托管：${expectedPhase} 无待处理内容，切换到 ${nextPhase.label}。`);
         return navigateToAllInOnePhase();
     }
 
@@ -714,11 +1200,11 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
      */
     function createModeSwitcherPanel() {
         if (isModePanelCreated) {
-            console.log('[Script] Mode switcher panel already created, skipping.');
+            debugLog('[Script] Mode switcher panel already created, skipping.');
             return;
         }
         isModePanelCreated = true;
-        console.log('[Script] Attempting to create Modern Mode Switcher Panel...');
+        debugLog('[Script] Attempting to create Modern Mode Switcher Panel...');
 
         try {
             GM_addStyle(`
@@ -1289,7 +1775,7 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
                         <div class="panel-section">
                             <div class="section-title">播放设置</div>
                             <div class="setting-row">
-                                <label for="speed-slider">视频倍速 (1-16x)</label>
+                                <label for="speed-slider">学习倍速：视频 / 文章 (1-16x)</label>
                                 <div class="speed-slider-container">
                                     <input type="range" id="speed-slider" min="1" max="16" step="0.5" value="${currentPlaybackRate}">
                                     <span id="speed-display">${currentPlaybackRate}x</span>
@@ -1300,11 +1786,22 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
                         <div class="panel-divider"></div>
 
                         <div class="panel-section">
+                            <div class="section-title">运行保活</div>
+                            <div id="runtime-keep-awake-status" style="font-size:12px;color:#605E5C;">尝试保活</div>
+                        </div>
+                        <div class="panel-divider"></div>
+                        <div class="panel-section">
+                            <div class="section-title">后台异常通知</div>
+                            <button id="test-background-notification-btn" class="panel-btn">测试桌面通知</button>
+                            <div style="font-size:12px;color:#605E5C;margin-top:6px;">后台异常时发送桌面提醒；同类异常五分钟内不重复提醒。请允许浏览器或脚本管理器发送系统通知。</div>
+                        </div>
+                        <div class="panel-divider"></div>
+                        <div class="panel-section">
                             <div class="section-title">考试设置</div>
                             <div class="setting-row">
-                                <label for="exam-retry-input">考试失败自动重试次数 (0-5)</label>
-                                <input type="number" id="exam-retry-input" class="api-key-input" min="0" max="5" step="1" value="${GM_getValue('sclpa_exam_max_retries', 3)}">
-                                <div style="font-size: 12px; color: #605E5C; margin-top: 6px;">考试未通过时自动提取错题回传 AI 修正并重新作答；设为 0 则失败后转人工复核。</div>
+                                <label for="exam-retry-input">考试失败自动重试次数 (0-3)</label>
+                                <input type="number" id="exam-retry-input" class="api-key-input" min="0" max="3" step="1" value="${normalizeExamRetryLimit(GM_getValue('sclpa_exam_max_retries', 3))}">
+                                <div style="font-size: 12px; color: #605E5C; margin-top: 6px;">考试未通过时自动提取错题回传 AI 修正并重新作答；设为 0 则跳过错题重试，继续其他考试；默认 3 次，最多 3 次。</div>
                             </div>
                         </div>
 
@@ -1393,7 +1890,8 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
             
             if (document.body) {
                 document.body.appendChild(panel);
-                console.log('[Script] Modern Mode Switcher Panel appended to body.');
+                if (pendingAutomationNotice) renderAutomationNotice();
+                debugLog('[Script] Modern Mode Switcher Panel appended to body.');
             } else {
                 console.error('[Script Error] document.body is not available when trying to append Mode Switcher Panel.');
                 isModePanelCreated = false;
@@ -1414,6 +1912,17 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
                     btn.classList.add('active');
                     document.getElementById(`tab-${targetTab}`).classList.add('active');
                 };
+            });
+
+            document.getElementById('test-background-notification-btn')?.addEventListener('click', async () => {
+                try {
+                    if (typeof GM_notification !== 'function' && typeof Notification === 'function' && Notification.permission === 'default') {
+                        await Notification.requestPermission();
+                    }
+                    if (await notifyBackgroundException('test', true)) {
+                        showAutomationNotice('已请求发送测试通知。若未显示，请检查浏览器和系统通知设置。', { autoHideMs: 8000 });
+                    }
+                } catch (_) { showAutomationNotice('通知权限未能启用，请检查浏览器和系统通知设置。'); }
             });
 
             // Service toggle
@@ -1437,9 +1946,10 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
 
             if (serviceBtn) {
                 serviceBtn.onclick = () => {
-                    isServiceActive = !isServiceActive;
-                    GM_setValue('sclpa_service_active', isServiceActive);
-                    window.location.reload();
+                    const active = !isServiceActive;
+                    if (active) resetVideoLoadFailures();
+                    setRuntimeServiceActive(active);
+                    if (active) mainLoop();
                 };
             }
 
@@ -1454,12 +1964,12 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
                 speedSlider.addEventListener('change', () => {
                     const newRate = parseFloat(speedSlider.value);
                     GM_setValue('sclpa_playback_rate', newRate);
-                    console.log(`[Script] 播放倍速设置为: ${newRate}x，立即应用到所有视频...`);
+                    debugLog(`[Script] 学习倍速设置为: ${newRate}x，应用到视频和文章计时。`);
                     applyCurrentVideoSpeed();
                     
                     if (!runtimeUiState.speedChangeAlertShown) {
-                        setTimeout(() => {
-                            alert(`✅ 播放倍速已更新为 ${newRate}x，并立即应用到当前页面！\n\n💡 如需在其他页面生效，刷新页面即可。`);
+                        scriptSetTimeout(() => {
+                            showAutomationNotice(`学习倍速已更新为 ${newRate}x。`, { autoHideMs: 6000 });
                             runtimeUiState.speedChangeAlertShown = true;
                             GM_setValue('sclpa_speed_alert_shown', true);
                         }, 100);
@@ -1467,14 +1977,14 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
                 });
             }
 
-            // Exam auto-retry setting (0 = disabled, fall back to manual review)
+            // 重试次数 0–3：0 跳过错题重试，默认 3 次。
             const examRetryInput = document.getElementById('exam-retry-input');
             if (examRetryInput) {
                 examRetryInput.addEventListener('change', () => {
-                    const value = Math.max(0, Math.min(5, parseInt(examRetryInput.value, 10) || 0));
+                    const value = normalizeExamRetryLimit(examRetryInput.value);
                     examRetryInput.value = value;
                     GM_setValue('sclpa_exam_max_retries', value);
-                    console.log(`[Script] 考试失败自动重试次数设置为: ${value}`);
+                    debugLog(`[Script] 考试失败自动重试次数设置为: ${value}`);
                 });
             }
 
@@ -1499,12 +2009,19 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
                     if (newKey) {
                         GM_setValue('sclpa_deepseek_api_key', newKey);
                         CONFIG.AI_API_SETTINGS.API_KEY = newKey;
+                        aiApiKey = newKey;
+                        const aiSubmit = document.getElementById('ai-helper-submit-btn');
+                        if (aiSubmit) aiSubmit.disabled = false;
+                        const aiWarning = document.getElementById('ai-key-warning');
+                        if (aiWarning) aiWarning.style.display = 'none';
                         if (apiKeyStatus) {
                             apiKeyStatus.className = 'api-key-status configured';
                             apiKeyStatus.innerHTML = '✅ API Key 已保存！';
                         }
-                        setTimeout(() => {
-                            alert('API Key 已保存！下次页面加载时生效。');
+                        scriptSetTimeout(() => {
+                            aiApiKey = apiKeyInput.value.trim();
+                            CONFIG.AI_API_SETTINGS.API_KEY = aiApiKey;
+                            showAutomationNotice('API Key 已保存并应用。', { autoHideMs: 6000 });
                         }, 100);
                     } else {
                         if (apiKeyStatus) {
@@ -1581,7 +2098,7 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
             if (panel && document.getElementById('mode-switcher-header')) {
                 makeDraggable(panel, document.getElementById('mode-switcher-header'));
             }
-            console.log('[Script] Modern Mode Switcher Panel creation attempted and event listeners attached.');
+            debugLog('[Script] Modern Mode Switcher Panel creation attempted and event listeners attached.');
 
         } catch (e) {
             console.error('[Script Error] Error creating Modern Mode Switcher Panel:', e);
@@ -1599,15 +2116,17 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
         const existingPanel = document.getElementById('ai-helper-panel');
         if (existingPanel) {
             existingPanel.remove();
-            console.log('[Script] Removed existing AI helper panel.');
+            debugLog('[Script] Removed existing AI helper panel.');
         }
-        console.log('[Script] Attempting to create Modern AI Helper Panel...');
+        debugLog('[Script] Attempting to create Modern AI Helper Panel...');
 
         try {
+            if (!isAiStyleInstalled) {
             GM_addStyle(`
                 /* AI Helper Panel - Fluent Design */
                 #ai-helper-panel {
                     position: fixed;
+                    box-sizing: border-box;
                     bottom: 20px;
                     right: 420px;
                     width: 400px;
@@ -1826,7 +2345,12 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
                     text-transform: uppercase;
                     letter-spacing: 0.02em;
                 }
+                @media (max-width: 860px) {
+                    #ai-helper-panel { right: 12px; max-width: calc(100vw - 24px); }
+                }
             `);
+                isAiStyleInstalled = true;
+            }
             
             const panel = document.createElement('div');
             panel.id = 'ai-helper-panel';
@@ -1853,7 +2377,7 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
             
             if (document.body) {
                 document.body.appendChild(panel);
-                console.log('[Script] Modern AI Helper Panel appended to body.');
+                debugLog('[Script] Modern AI Helper Panel appended to body.');
             } else {
                 console.error('[Script Error] document.body is not available when trying to append AI Helper Panel.');
                 return;
@@ -1890,7 +2414,7 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
                         resultDiv.innerHTML = '<span style="color: #dc3545;">❌ 错误：问题不能为空！</span>'; 
                         return; 
                     }
-                    if (!isApiKeyConfigured) {
+                    if (!CONFIG.AI_API_SETTINGS.API_KEY || CONFIG.AI_API_SETTINGS.API_KEY.includes('请在此处')) {
                         resultDiv.innerHTML = '<span style="color: #dc3545;">❌ 错误：请先在控制面板中设置您的 DeepSeek API Key！</span>';
                         return;
                     }
@@ -1901,7 +2425,7 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
                     
                     try {
                         const answer = await askAiForAnswer(question);
-                        resultDiv.innerHTML = `<div style="color: #28a745; margin-bottom: 8px;">✅ 已获取答案</div><div style="color: #333;">${answer}</div>`;
+                        resultDiv.textContent = String(answer);
                     } catch (error) {
                         resultDiv.innerHTML = `<span style="color: #dc3545;">❌ 请求失败：${error}</span>`;
                     } finally {
@@ -1914,7 +2438,7 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
             if (panel && document.getElementById('ai-helper-header')) {
                 makeDraggable(panel, document.getElementById('ai-helper-header'));
             }
-            console.log('[Script] Modern AI Helper Panel creation attempted and event listeners attached.');
+            debugLog('[Script] Modern AI Helper Panel creation attempted and event listeners attached.');
 
         } catch (e) {
             console.error('[Script Error] Error creating Modern AI Helper Panel:', e);
@@ -2011,7 +2535,9 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
      */
     function handleCourseListPage(courseType) {
         if (!isServiceActive) return;
-        console.log(`[Script] handleCourseListPage called for ${courseType}.`);
+        const expectedRoute = courseType === '公需课' ? '/publicdemand' : '/specialized';
+        if (!window.location.hash.toLowerCase().includes(expectedRoute)) return;
+        debugLog(`[Script] handleCourseListPage called for ${courseType}.`);
 
         // Handle public course tab switching first
         if (courseType === '公需课') {
@@ -2019,7 +2545,7 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
             const targetTabText = publicTarget === 'article' ? '文章资讯' : '视频课程';
             const targetTab = findElementByText('.radioTab > .radio-tab-tag', targetTabText);
             if (targetTab && !targetTab.classList.contains('radio-tab-tag-ed')) {
-                console.log(`[Script] Public Course: Target is ${targetTabText}, switching tab...`);
+                debugLog(`[Script] Public Course: Target is ${targetTabText}, switching tab...`);
                 clickElement(targetTab);
                 schedulePublicCourseListAction(() => handleCourseListPage(courseType), 1000);
                 return;
@@ -2033,20 +2559,20 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
         // Step 1: Click "未完成" tab if not already active
         // Removed `!unfinishedTabClicked` to ensure it keeps trying to click until active
         if (unfinishedTab && !isUnfinishedTabActive(unfinishedTab)) {
-            console.log('[Script] Course List: Found "未完成" tab and it is not active, clicking it...');
+            debugLog('[Script] Course List: Found "未完成" tab and it is not active, clicking it...');
             clickElement(unfinishedTab);
             // Set unfinishedTabClicked to true only after a successful click attempt
             // This flag is reset by mainLoop when hash changes to a list page.
             unfinishedTabClicked = true;
             // After clicking, wait for the page to filter/load the unfinished list
             const continueAfterFilter = () => {
-                console.log('[Script] Course List: Waiting after clicking "未完成" tab, then re-evaluating...');
+                debugLog('[Script] Course List: Waiting after clicking "未完成" tab, then re-evaluating...');
                 handleCourseListPage(courseType);
             };
             if (courseType === '公需课') {
                 schedulePublicCourseListAction(continueAfterFilter, 3000);
             } else {
-                setTimeout(continueAfterFilter, 3000);
+                scriptSetTimeout(continueAfterFilter, 3000);
             }
             return; // Crucial to prevent immediate fall-through to course finding
         }
@@ -2055,8 +2581,12 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
         // This block will only execute if the tab is truly active.
         if (unfinishedTab && isUnfinishedTabActive(unfinishedTab)) {
             const findAndEnterCourse = () => {
+                if (!isServiceActive) return;
+                if (!window.location.hash.toLowerCase().includes(expectedRoute)) return;
+                if (Array.from(document.querySelectorAll('.el-loading-mask')).some(isElementVisible)) return;
                 let targetCourseElement = Array.from(document.querySelectorAll('.play-card')).find(card =>
-                    !card.querySelector('.el-icon-success') && !card.innerText.includes('已完成')
+                    !card.querySelector('.el-icon-success') && !card.innerText.includes('已完成') &&
+                    !(courseType === '公需课' && isBlockedPublicVideoCard(card))
                 );
 
                 if (!targetCourseElement) {
@@ -2072,20 +2602,32 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
                 }
 
                 if (targetCourseElement) {
+                    emptyCourseObservation = null;
                     if (courseType === '公需课') {
                         const publicTarget = GM_getValue('sclpa_public_target', 'video');
                         const activeCategory = getPublicCourseCategoryTabs().find(tab => tab.classList.contains('radio-tab-tag-ed'));
                         if (activeCategory) exhaustedPublicCourseCategories.delete(`${publicTarget}:${activeCategory.innerText.trim()}`);
                     }
-                    console.log(`[Script] ${courseType}: Found the first unfinished item, clicking to enter study...`);
+                    debugLog(`[Script] ${courseType}: Found the first unfinished item, clicking to enter study...`);
                     const clickableElement = targetCourseElement.querySelector('.play-card-box-right-text') || targetCourseElement;
                     clickElement(clickableElement);
                 } else {
-                    console.log(`[Script] ${courseType}: No unfinished items found on "未完成" page. All courses might be completed or elements not yet loaded.`);
+                    const category = getPublicCourseCategoryTabs().find(tab => tab.classList.contains('radio-tab-tag-ed'))?.innerText.trim() || '';
+                    const emptyKey = window.location.hash + '|' + courseType + '|' + GM_getValue('sclpa_public_target', 'video') + '|' + category;
+                    if (emptyCourseObservation?.key !== emptyKey) {
+                        emptyCourseObservation = { key: emptyKey, since: performance.now() };
+                        return;
+                    }
+                    if (performance.now() - emptyCourseObservation.since < 4000) return;
+                    debugLog('[Script] 未完成列表持续为空，继续检查后续分类或阶段。');
                     if (courseType === '公需课') {
                         const moved = moveToNextPublicCourseCategory();
                         if (!moved) {
                             const publicTarget = GM_getValue('sclpa_public_target', 'video');
+                            if (publicTarget === 'video' && Object.values(videoLoadFailures).some(record => !record.professional && record.blocked)) {
+                                pauseForVideoLoadFailures();
+                                return;
+                            }
                             advanceAllInOnePhaseIfExpected(publicTarget === 'article' ? 'public-article' : 'public-video');
                         }
                     } else {
@@ -2096,7 +2638,7 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
             if (courseType === '公需课') {
                 schedulePublicCourseListAction(findAndEnterCourse, 1500);
             } else {
-                setTimeout(findAndEnterCourse, 1500);
+                scriptSetTimeout(findAndEnterCourse, 1500);
             }
         }
     }
@@ -2106,7 +2648,9 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
      */
     function handleLearningPage() {
         if (!isServiceActive) return;
-        console.log('[Script] handleLearningPage called.');
+        debugLog('[Script] handleLearningPage called.');
+        if (/\/(?:openplayer|majorplayerpage)(?:[/?]|$)/i.test(window.location.hash) &&
+            handleVideoLoading(document.querySelector('video'))) return;
         if (!isVideoSpeedEngineInitialized) {
             initializeEnhancedVideoSpeedEngine();
         }
@@ -2119,8 +2663,11 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
             const video = document.querySelector('video');
             if (video) {
                 handleSingleMediaCourse(video);
-            } else {
+            } else if (/\/(?:imageandtext|articleplayerpage)(?:[/?]|$)/i.test(window.location.hash)) {
                 handleArticleReadingPage();
+            } else {
+                // 视频页面异步挂载播放器；尚无 video 时应等待，不能按文章完成状态返回列表。
+                debugLog('[Script] Waiting for video player to mount.');
             }
         }
     }
@@ -2131,12 +2678,12 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
      */
     function handleMultiChapterCourse(directoryItems) {
         if (isChangingChapter) return;
-        console.log('[Script] handleMultiChapterCourse called.');
+        debugLog('[Script] handleMultiChapterCourse called.');
         const video = document.querySelector('video');
 
         // [FIX] Ensure video object exists before proceeding
         if (!video) {
-            console.log('[Script] Video element not found, waiting...');
+            debugLog('[Script] Video element not found, waiting...');
             return;
         }
 
@@ -2153,7 +2700,7 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
         // Logic to find the next unfinished chapter
         let nextChapter = null;
         for (const item of directoryItems) {
-            if (!item.querySelector('.el-icon-success')) {
+            if (!item.querySelector('.el-icon-success') && !isBlockedProfessionalChapter(item)) {
                 nextChapter = item;
                 break;
             }
@@ -2162,17 +2709,21 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
         if (nextChapter) {
             const isAlreadySelected = nextChapter.classList.contains('catalogue-item-ed');
             if (isAlreadySelected) { // If it's the correct chapter but paused
-                console.log('[Script] Current chapter is correct but video is paused, attempting to play.');
+                debugLog('[Script] Current chapter is correct but video is paused, attempting to play.');
                 video.play().catch(e => { console.error('[Script Error] Failed to play video:', e); });
             } else { // If we need to switch to the next chapter
-                console.log('[Script] Moving to next chapter:', nextChapter.innerText.trim());
+                debugLog('[Script] Moving to next chapter:', nextChapter.innerText.trim());
                 clickElement(nextChapter);
                 isChangingChapter = true;
-                setTimeout(() => { isChangingChapter = false; }, 4000); // Give time for chapter to load
+                scriptSetTimeout(() => { isChangingChapter = false; }, 4000); // Give time for chapter to load
             }
         } else {
+            if (Array.from(directoryItems).some(item => !item.querySelector('.el-icon-success') && isBlockedProfessionalChapter(item))) {
+                pauseForVideoLoadFailures();
+                return;
+            }
             // All chapters have the success icon. The main loop will now handle navigation via handleMajorPlayerPage.
-            console.log('[Script] All chapters appear to be complete. The main loop will verify and navigate.');
+            debugLog('[Script] All chapters appear to be complete. The main loop will verify and navigate.');
         }
     }
 
@@ -2182,34 +2733,202 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
      * @param {HTMLVideoElement} video
      */
     function handleSingleMediaCourse(video) {
-        console.log('[Script] handleSingleMediaCourse called.');
         if (!video.dataset.singleVidControlled) {
-            video.addEventListener('ended', safeNavigateAfterCourseCompletion);
+            video.addEventListener('ended', () => {
+                if (isServiceActive && hasConfirmedPublicVideoCompletion()) {
+                    safeNavigateAfterCourseCompletion();
+                }
+            });
             video.dataset.singleVidControlled = 'true';
-            console.log('[Script] Added "ended" event listener for single media course.');
+            debugLog('[Script] Added "ended" event listener for single media course.');
         }
 
         // [FIX] Always set playbackRate and muted properties.
         video.playbackRate = CONFIG.VIDEO_PLAYBACK_RATE;
         video.muted = true;
 
+        if (video.ended) {
+            // 平台在 ended 后异步保存学习记录；播放器结束不等于记录已保存。
+            if (hasConfirmedPublicVideoCompletion()) safeNavigateAfterCourseCompletion();
+            return;
+        }
         if (video.paused) {
-            console.log('[Script] Single media video paused, attempting to play.');
+            debugLog('[Script] Single media video paused, attempting to play.');
             video.play().catch(e => { console.error('[Script Error] Failed to play single media video:', e); });
         }
+    }
+
+    function hasConfirmedPublicVideoCompletion() {
+        const activeItem = document.querySelector('.open-player-right-content .video-list-item.active');
+        if (!activeItem) return false;
+        const status = activeItem.querySelector('.list-item-status')?.innerText.trim();
+        const completedIcon = activeItem.querySelector('use');
+        const iconName = completedIcon?.getAttribute('xlink:href') || completedIcon?.getAttribute('href');
+        return status === '待考试' || status === '完成' || status === '已完成' || iconName === '#icon-wancheng';
+    }
+
+    function readVideoLoadFailures() {
+        try {
+            const stored = JSON.parse(sessionStorage.getItem(VIDEO_LOAD_FAILURES_KEY) || '{}');
+            if (stored && typeof stored === 'object' && !Array.isArray(stored)) return stored;
+        } catch (error) { /* 浏览器禁用会话存储时，仅保留当前页面的重试记录。 */ }
+        return {};
+    }
+
+    function saveVideoLoadFailures() {
+        try {
+            sessionStorage.setItem(VIDEO_LOAD_FAILURES_KEY, JSON.stringify(videoLoadFailures));
+            return true;
+        } catch (error) { return false; }
+    }
+
+    function resetVideoLoadFailures() {
+        videoLoadFailures = {};
+        videoLoadingState = null;
+        saveVideoLoadFailures();
+    }
+
+    function publicVideoTitle(element) {
+        return (element?.querySelector('.title')?.textContent || element?.textContent || '').replace(/\s+/g, '').trim();
+    }
+
+    function isBlockedPublicVideoTitle(title) {
+        return Boolean(title && Object.values(videoLoadFailures).some(record => !record.professional && record.blocked && record.title === title));
+    }
+
+    function isBlockedPublicVideoCard(card) {
+        if (GM_getValue('sclpa_public_target', 'video') !== 'video') return false;
+        const text = card.textContent.replace(/\s+/g, '');
+        return Object.values(videoLoadFailures).some(record => !record.professional && record.blocked && record.title && text.includes(record.title));
+    }
+
+    function professionalChapterKey(item) {
+        // 仅在当前课程目录内关联章节，不保存学习者或接口参数。
+        const titles = Array.from(document.querySelectorAll('.catalogue-item')).map(publicVideoTitle);
+        return `professional:${JSON.stringify(titles)}:${publicVideoTitle(item)}`;
+    }
+
+    function isBlockedProfessionalChapter(item) {
+        return Boolean(videoLoadFailures[professionalChapterKey(item)]?.blocked);
+    }
+
+    function pauseForVideoLoadFailures() {
+        notifyBackgroundException('video-stopped');
+        setRuntimeServiceActive(false);
+        const status = document.getElementById('status-text');
+        if (status) status.textContent = '加载失败课程仍未完成；启动服务可重新尝试';
+        const button = document.getElementById('service-toggle-btn');
+        if (button) {
+            button.textContent = '▶️ 启动服务';
+            button.className = 'panel-btn service-btn-paused';
+        }
+        document.getElementById('status-dot')?.classList.remove('active');
+    }
+
+    function reconcileVideoLoadingIndicator(video, previousTime) {
+        if (!video || video.error || video.readyState < 2 || !video.videoWidth || !video.videoHeight) return;
+        const quality = video.getVideoPlaybackQuality?.();
+        const hasDecodedFrame = quality && quality.totalVideoFrames > quality.droppedVideoFrames;
+        if (!hasDecodedFrame && Math.abs(video.currentTime - previousTime) <= 0.05) return;
+        const component = video.closest('.video-box')?.__vue__;
+        if (component?.$options?.name !== 'videoPlayer' || !component.loadLoading ||
+            component.loadError || component.slideVerifyShow || component.toSeeEl) return;
+        if (!component.playerEl?.el()?.contains(video)) return;
+        // 网站仅在 loadedmetadata 回调中关闭遮罩；已解码/播放的视频不能继续被旧加载状态遮住。
+        component.loadLoading = false;
+        debugLog('[Script] 视频已经可播放，校正网站残留的加载遮罩。');
+    }
+
+    // 只恢复实际加载停滞；不修改学习进度、不把失败课程标记为完成。
+    function handleVideoLoading(video) {
+        const params = new URLSearchParams(window.location.hash.split('?')[1] || '');
+        const professional = /\/majorplayerpage(?:[/?]|$)/i.test(window.location.hash);
+        if (professional && isChangingChapter) return true;
+        const activeItem = document.querySelector(professional ? '.catalogue-item-ed' : '.open-player-right-content .video-list-item.active');
+        const title = activeItem ? publicVideoTitle(activeItem) : '';
+        const courseId = params.get('courseContId');
+        const key = professional ? (activeItem ? professionalChapterKey(activeItem) : 'professional:player-mount') : courseId ? `course:${courseId}` : title ? `title:${title}` : 'public:player-mount';
+        if (!key) return false;
+        const now = performance.now();
+        const time = video?.currentTime || 0;
+        if (!videoLoadingState || videoLoadingState.key !== key) {
+            videoLoadingState = { key, lastTime: time, lastProgressAt: now };
+        }
+        const state = videoLoadingState;
+        const pendingRequest = Array.from(document.querySelectorAll('.el-loading-mask')).some(isElementVisible);
+        if (!pendingRequest) reconcileVideoLoadingIndicator(video, state.lastTime);
+        if (!pendingRequest && video?.ended) return false;
+        if (!pendingRequest && video && !video.error &&
+            (Math.abs(time - state.lastTime) > 0.05 || (video.paused && video.readyState >= 3))) {
+            state.lastTime = time;
+            state.lastProgressAt = now;
+            return false;
+        }
+        state.lastTime = time;
+        if (now - state.lastProgressAt < VIDEO_LOAD_TIMEOUT_MS) return false;
+        const record = videoLoadFailures[key] || { retries: 0, title, professional, blocked: false };
+        if (title) record.title = title;
+        videoLoadFailures[key] = record;
+        state.lastProgressAt = now;
+        if (record.retries < VIDEO_LOAD_MAX_RETRIES) {
+            if (record.retries === 0) notifyBackgroundException('video-stalled');
+            record.retries++;
+            const persisted = saveVideoLoadFailures();
+            console.warn(`[Script] 视频加载超时，恢复尝试 ${record.retries}/${VIDEO_LOAD_MAX_RETRIES}。`);
+            if (persisted && (!video || pendingRequest || record.retries === VIDEO_LOAD_MAX_RETRIES)) {
+                window.location.reload();
+            } else if (video) {
+                video.load();
+                video.play().catch(() => {});
+            }
+            return true;
+        }
+        record.blocked = true;
+        saveVideoLoadFailures();
+        notifyBackgroundException('video-skipped');
+        console.warn('[Script] 此视频重试后仍加载失败，本轮暂时跳过，保留未完成状态。');
+        if (professional) {
+            const nextChapter = Array.from(document.querySelectorAll('.catalogue-item')).find(item =>
+                !item.classList.contains('catalogue-item-ed') && !item.querySelector('.el-icon-success') && !isBlockedProfessionalChapter(item));
+            videoLoadingState = null;
+            if (nextChapter) {
+                clickElement(nextChapter);
+                isChangingChapter = true;
+                scriptSetTimeout(() => { isChangingChapter = false; }, 4000);
+            } else pauseForVideoLoadFailures();
+            return true;
+        }
+        const next = Array.from(document.querySelectorAll('.open-player-right-content .video-list-item')).find(item => {
+            const status = item.querySelector('.list-item-status')?.textContent.trim() || '';
+            const icon = item.querySelector('use');
+            const completedIcon = (icon?.getAttribute('xlink:href') || icon?.getAttribute('href')) === '#icon-wancheng';
+            return !item.classList.contains('active') && !/待考试|完成|合格/.test(status) && !completedIcon &&
+                !isBlockedPublicVideoTitle(publicVideoTitle(item));
+        });
+        videoLoadingState = null;
+        if (next) clickElement(next);
+        else if (record.title) safeNavigateBackToList();
+        else pauseForVideoLoadFailures();
+        const status = document.getElementById('status-text');
+        if (isServiceActive && status) status.textContent = '运行中（有加载失败视频暂时跳过；重启服务可重试）';
+        return true;
     }
 
     /**
      * Handle article reading page
      */
     function handleArticleReadingPage() {
-        console.log('[Script] handleArticleReadingPage called.');
+        if (!/\/(?:imageandtext|articleplayerpage)(?:[/?]|$)/i.test(window.location.hash)) return;
+        debugLog('[Script] handleArticleReadingPage called.');
         const progressLabel = document.querySelector('.action-btn .label');
-        if (progressLabel && (progressLabel.innerText.includes('100') || progressLabel.innerText.includes('待考试'))) {
-            console.log('[Script] Article study completed, preparing to return to list.');
+        const info = document.querySelector('.image-and-text')?.__vue__?.ImageAndTextInfo;
+        const confirmed = info ? Boolean(info.isWanCheng || info.isTongGuo)
+            : Boolean(progressLabel && /^(待考试|已完成|完成)$/.test(progressLabel.innerText.trim()));
+        if (confirmed) {
+            debugLog('[Script] Article study completed, preparing to return to list.');
             safeNavigateAfterCourseCompletion();
         } else {
-            console.log('[Script] Article progress not yet 100% or "待考试".');
+            debugLog('[Script] Article progress not yet 100% or "待考试".');
         }
     }
 
@@ -2219,23 +2938,23 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
      */
     function handleExamPage() {
         if (!isServiceActive) return; // Only run if service is active
-        console.log('[Script] handleExamPage called.');
+        debugLog('[Script] handleExamPage called.');
 
         currentNavContext = GM_getValue('sclpa_nav_context', ''); // Ensure context is fresh
         if (currentNavContext === 'course') {
-            console.log('[Script] Current navigation context is "course". Ignoring exam automation and navigating back to course list.');
+            debugLog('[Script] Current navigation context is "course". Ignoring exam automation and navigating back to course list.');
             safeNavigateBackToList();
             return;
         }
 
         if (isSubmittingExam) {
-            console.log('[Script] Exam submission in progress, deferring AI processing.');
+            debugLog('[Script] Exam submission in progress, deferring AI processing.');
             return;
         }
 
         if (!document.getElementById('ai-helper-panel')) {
             createManualAiHelper();
-            setTimeout(() => {
+            scriptSetTimeout(() => {
                 triggerAiQuestionAndProcessAnswer();
             }, 500);
         } else {
@@ -2251,7 +2970,7 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
         const examinationItems = document.querySelectorAll('.examination-body-item');
 
         if (examinationItems.length === 0) {
-            console.log('[Script] No examination items found. Cannot trigger AI.');
+            debugLog('[Script] No examination items found. Cannot trigger AI.');
             return;
         }
 
@@ -2259,7 +2978,7 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
         const visibleReviewState = Array.from(document.querySelectorAll('.examination-body-item .details-state'))
             .find(element => element.offsetParent !== null);
         if (visibleReviewState) {
-            console.log('[Script] Current view is the correction review page, skipping auto answering.');
+            debugLog('[Script] Current view is the correction review page, skipping auto answering.');
             return;
         }
 
@@ -2271,9 +2990,9 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
         // Only process if the batch of questions has changed and AI answer is not pending
         if (!fullQuestionBatchContent || fullQuestionBatchContent === currentQuestionBatchText || isAiAnswerPending) {
             if (isAiAnswerPending) {
-                console.log('[Script] AI answer already pending for current question batch, skipping new query.');
+                debugLog('[Script] AI answer already pending for current question batch, skipping new query.');
             } else if (fullQuestionBatchContent === currentQuestionBatchText) {
-                console.log('[Script] Question batch content has not changed, skipping AI query.');
+                debugLog('[Script] Question batch content has not changed, skipping AI query.');
             }
             return;
         }
@@ -2283,11 +3002,14 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
             const items = Array.from(examinationItems);
             const rememberedAnswers = items.map(item => getRememberedAnswerForItem(item));
             if (rememberedAnswers.length > 0 && rememberedAnswers.every(answer => answer)) {
-                console.log('[Script] Using remembered answers to answer current page directly (auto retry round).');
+                debugLog('[Script] Using remembered answers to answer current page directly (auto retry round).');
                 currentQuestionBatchText = fullQuestionBatchContent;
-                items.forEach(item => selectAnswersForItem(item, getRememberedAnswerForItem(item)));
-                setTimeout(() => {
-                    handleNextQuestionOrSubmitExam();
+                if (!parseAndSelectAllAnswers('')) return;
+                const answerRoute = window.location.hash;
+                scriptSetTimeout(() => {
+                    if (isCurrentAnswerBatch(answerRoute, fullQuestionBatchContent)) {
+                        handleNextQuestionOrSubmitExam();
+                    }
                 }, 1000);
                 return;
             }
@@ -2298,46 +3020,62 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
         const aiHelperResultDiv = document.getElementById('ai-helper-result');
 
         if (!aiHelperTextarea || !aiHelperSubmitBtn || !aiHelperResultDiv) {
-            console.log('[Script] AI helper elements missing. Cannot trigger AI.');
+            debugLog('[Script] AI helper elements missing. Cannot trigger AI.');
             return;
         }
 
         currentQuestionBatchText = fullQuestionBatchContent; // Update current batch text
-        aiHelperTextarea.value = fullQuestionBatchContent; // Set textarea value with all questions
+        aiHelperTextarea.value = fullQuestionBatchContent + buildRetryHistoryContext(examinationItems); // Set textarea value with all questions
         aiHelperResultDiv.innerText = '正在向AI发送请求...';
-        console.log('[Script] New batch of exam questions copied to AI helper textarea, triggering AI query...');
+        debugLog('[Script] New batch of exam questions copied to AI helper textarea, triggering AI query...');
 
         isAiAnswerPending = true;
 
+        const answerRoute = window.location.hash;
+        const answerGeneration = ++aiBatchGeneration;
+        const answerDeadline = performance.now() + 150000;
+        const checkInterval = 500;
         clickElement(aiHelperSubmitBtn);
 
-        let attempts = 0;
-        const maxAttempts = 300; // Max 300 attempts * 500ms = 60 seconds
-        const checkInterval = 500;
-
-        const checkAiResult = setInterval(() => {
-            if (aiHelperResultDiv.innerText.trim() && aiHelperResultDiv.innerText.trim() !== '正在向AI发送请求...' && aiHelperResultDiv.innerText.trim() !== '请先提问...') {
-                clearInterval(checkAiResult);
-                isAiAnswerPending = false;
-                console.log('[Script] AI response received:', aiHelperResultDiv.innerText.trim());
-                parseAndSelectAllAnswers(aiHelperResultDiv.innerText.trim()); // Call new function to handle all answers
-
-                setTimeout(() => {
-                    handleNextQuestionOrSubmitExam(); // After all answers are selected, move to next step
-                }, 1000);
-            } else if (attempts >= maxAttempts) {
-                clearInterval(checkAiResult);
-                isAiAnswerPending = false;
-                console.log('[Script] Timeout waiting for AI response for question batch.');
-                aiHelperResultDiv.innerText = 'AI请求超时，请手动重试。';
-                setTimeout(() => {
-                    handleNextQuestionOrSubmitExam();
-                }, 1000);
+        const checkAiResult = scriptSetInterval(() => {
+            if (!isServiceActive || answerGeneration !== aiBatchGeneration || !isCurrentAnswerBatch(answerRoute, fullQuestionBatchContent)) {
+                scriptClearInterval(checkAiResult);
+                if (answerGeneration === aiBatchGeneration) isAiAnswerPending = false;
+                return;
             }
-            attempts++;
+            if (aiHelperResultDiv.innerText.trim() && aiHelperResultDiv.innerText.trim() !== '正在向AI发送请求...' && aiHelperResultDiv.innerText.trim() !== '请先提问...') {
+                scriptClearInterval(checkAiResult);
+                isAiAnswerPending = false;
+                if (/错误|失败|超时|未配置|请先.*(?:设置|填写|配置)/.test(aiHelperResultDiv.innerText)) {
+                    notifyBackgroundException('ai-failed');
+                    console.warn('[Script] AI 没有返回可用答案，保留当前试卷等待处理。');
+                    return;
+                }
+                debugLog('[Script] AI response received:', aiHelperResultDiv.innerText.trim());
+                if (!parseAndSelectAllAnswers(aiHelperResultDiv.innerText.trim())) return;
+
+                scriptSetTimeout(() => {
+                    if (isCurrentAnswerBatch(answerRoute, fullQuestionBatchContent)) {
+                        handleNextQuestionOrSubmitExam();
+                    }
+                }, 1000);
+            } else if (performance.now() >= answerDeadline) {
+                scriptClearInterval(checkAiResult);
+                isAiAnswerPending = false;
+                debugLog('[Script] Timeout waiting for AI response for question batch.');
+                aiHelperResultDiv.innerText = 'AI请求超时，请手动重试。';
+                notifyBackgroundException('ai-timeout');
+            }
         }, checkInterval);
     }
 
+
+    function isCurrentAnswerBatch(route, batch) {
+        if (window.location.hash !== route || currentQuestionBatchText !== batch) return false;
+        const current = Array.from(document.querySelectorAll('.examination-body-item'))
+            .map(item => item.innerText.trim() + '\n\n').join('');
+        return current === batch;
+    }
 
     /**
      * 为单个题目按答案字母（如 "ABC"）点击对应选项。
@@ -2352,7 +3090,7 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
             );
 
             if (optionElement) {
-                console.log(`[Script] Selecting option: ${letter}`);
+                debugLog(`[Script] Selecting option: ${letter}`);
                 clickElement(optionElement);
             } else {
                 console.warn(`[Script] Option '${letter}' not found using text '${optionText}'.`);
@@ -2375,65 +3113,43 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
      * @param {string} aiResponse - The raw response string from the AI (e.g., "1.A\n2.BC\n3.D").
      */
     function parseAndSelectAllAnswers(aiResponse) {
-        const aiAnswerLines = aiResponse.split('\n').map(line => line.trim()).filter(line => line.length > 0);
-        const examinationItems = document.querySelectorAll('.examination-body-item');
-
-        const aiAnswersMap = new Map(); // Map to store {questionNumber: answerLetters}
-        aiAnswerLines.forEach(line => {
-            const parts = line.split('.');
-            if (parts.length >= 2) {
-                const qNum = parseInt(parts[0]);
-                const ansLetters = parts[1].toUpperCase();
-                if (!isNaN(qNum) && ansLetters) {
-                    aiAnswersMap.set(qNum, ansLetters);
-                } else {
-                    console.warn(`[Script] Invalid AI response line format or content: ${line}`);
-                }
-            } else {
-                console.warn(`[Script] Invalid AI response line format: ${line}`);
+        const answers = parseAnswersToMap(aiResponse);
+        const items = Array.from(document.querySelectorAll('.examination-body-item'));
+        const selections = [];
+        for (const item of items) {
+            const title = item.querySelector('.examination-body-title')?.innerText.trim() || '';
+            const number = title.match(/^(\d+)\s*[、.．:：)）]/)?.[1];
+            const answer = canonicalAnswer(getRememberedAnswerForItem(item) || answers.get(Number(number)) || '');
+            const options = Array.from(item.querySelectorAll('.examination-check-item')).map(option => option.innerText.trim());
+            const question = { title: getNormalizedQuestionTitle(item), options };
+            if (!number || !answer || [...answer].some(letter => !options.some(text => text.startsWith(letter + '.'))) || isConfirmedWrongAnswer(question, answer)) {
+                showAutomationNotice('AI 答案缺失、选项无效或重复已确认错答，已停止自动交卷，请核对后重试。');
+                notifyBackgroundException('ai-failed');
+                return false;
             }
-        });
-
-        examinationItems.forEach(item => {
-            const questionTitleElement = item.querySelector('.examination-body-title');
-            if (questionTitleElement) {
-                const rememberedAnswer = getRememberedAnswerForItem(item);
-                const match = questionTitleElement.innerText.trim().match(/^(\d+)、/);
-                const questionNumber = match ? parseInt(match[1]) : null;
-
-                if (rememberedAnswer) {
-                    console.log(`[Script] Using remembered answer for Q${questionNumber}: ${rememberedAnswer}`);
-                    selectAnswersForItem(item, rememberedAnswer);
-                } else if (questionNumber !== null && aiAnswersMap.has(questionNumber)) {
-                    const answerLetters = aiAnswersMap.get(questionNumber);
-                    console.log(`[Script] Processing Q${questionNumber}: Selecting options ${answerLetters}`);
-                    selectAnswersForItem(item, answerLetters);
-                } else if (questionNumber === null) {
-                    console.warn('[Script] Could not extract question number from item:', item.innerText.trim().substring(0, 50) + '...');
-                } else {
-                    console.log(`[Script] No AI answer found for Q${questionNumber} in AI response. Skipping.`);
-                }
-            }
-        });
-        console.log('[Script] Finished parsing and selecting all answers on current page.');
+            selections.push([item, answer]);
+        }
+        if (!selections.length) return false;
+        selections.forEach(([item, answer]) => selectAnswersForItem(item, answer));
+        return true;
     }
-
 
     /**
      * Handles navigation after answering a question: either to the next question or submits the exam.
      */
     function handleNextQuestionOrSubmitExam() {
+        if (!window.location.hash.toLowerCase().includes('/examination')) return;
         if (!isServiceActive || isSubmittingExam) {
-            console.log('[Script] Service inactive or exam submission in progress, deferring next step.');
+            debugLog('[Script] Service inactive or exam submission in progress, deferring next step.');
             return;
         }
-        console.log('[Script] handleNextQuestionOrSubmitExam called.');
+        debugLog('[Script] handleNextQuestionOrSubmitExam called.');
 
         // First, try to find the "下一题" button
         const nextQuestionButton = findElementByText('button span', '下一题');
 
         if (nextQuestionButton) {
-            console.log('[Script] Found "下一题" button, clicking it...');
+            debugLog('[Script] Found "下一题" button, clicking it...');
             clickElement(nextQuestionButton.closest('button'));
             // After clicking "下一题", the page should load the next question batch.
             // mainLoop will detect hash change and re-trigger handleExamPage,
@@ -2445,14 +3161,22 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
             const submitExamButton = findElementByText('button.submit-btn span', '提交试卷');
 
             if (submitExamButton) {
-                console.log('[Script] "下一题" not found. Found "提交试卷" button, clicking it...');
+                debugLog('[Script] "下一题" not found. Found "提交试卷" button, clicking it...');
                 isSubmittingExam = true;
                 clickElement(submitExamButton.closest('button'));
 
+                const submittedRoute = window.location.hash;
+                const submittedGeneration = aiBatchGeneration;
                 let resultChecks = 0;
-                const resultCheckTimer = setInterval(() => {
+                const resultDeadline = performance.now() + 15000;
+                const resultCheckTimer = scriptSetInterval(() => {
+                    if (!isServiceActive || window.location.hash !== submittedRoute || aiBatchGeneration !== submittedGeneration) {
+                        scriptClearInterval(resultCheckTimer);
+                        if (aiBatchGeneration === submittedGeneration) isSubmittingExam = false;
+                        return;
+                    }
                     if (hasFailedExamResult()) {
-                        clearInterval(resultCheckTimer);
+                        scriptClearInterval(resultCheckTimer);
                         handleFailedExamResult();
                         return;
                     }
@@ -2460,33 +3184,26 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
                     // 若结果提示已出现但并非“未通过”，视为通过：确认完成、重置重试状态并自动返回列表继续下一场。
                     const resultTip = document.querySelector('.result-tip-content');
                     if (resultTip && isElementVisible(resultTip) && !resultTipTextIsFailure(resultTip.innerText) &&
-                        /考试通过|考试合格|成绩合格|通过考试|及格|考试完成/.test(resultTip.innerText)) {
-                        clearInterval(resultCheckTimer);
+                        /考试通过|考试合格|成绩合格|通过考试|及格/.test(resultTip.innerText)) {
+                        scriptClearInterval(resultCheckTimer);
                         isSubmittingExam = false;
                         resetExamRetryState('检测到考试通过结果');
-                        console.log('[Script] 检测到考试通过结果，自动返回考试列表继续下一场考试。');
+                        debugLog('[Script] 检测到考试通过结果，自动返回考试列表继续下一场考试。');
                         proceedAfterExamPassed();
                         return;
                     }
 
                     resultChecks++;
-                    if (resultChecks >= 30) {
-                        clearInterval(resultCheckTimer);
+                    if (resultChecks >= 30 || performance.now() >= resultDeadline) {
+                        scriptClearInterval(resultCheckTimer);
                         isSubmittingExam = false;
-                        // 结果页已出现但 15s 内未匹配到明确的通过文案：只要非“未通过”即视为通过并继续下一场。
-                        const lateResultTip = document.querySelector('.result-tip-content');
-                        if (lateResultTip && isElementVisible(lateResultTip) && !resultTipTextIsFailure(lateResultTip.innerText)) {
-                            console.log('[Script] 未能匹配到明确通过文案，但结果页非“未通过”，视为通过并继续下一场。');
-                            resetExamRetryState('检测到考试通过结果');
-                            proceedAfterExamPassed();
-                        } else {
-                            console.warn('[Script] 未能确认考试结果，已停止自动跳转，等待人工确认。');
-                            resetExamRetryState('结果未知，等待人工确认');
-                        }
+                        notifyBackgroundException('exam-unknown');
+                        showAutomationNotice('未能确认考试结果，已停止自动跳转，请核对平台结果。');
+                        resetExamRetryState('结果未知，等待人工确认');
                     }
                 }, 500);
             } else {
-                console.log('[Script] Neither "下一题" nor "提交试卷" button found. Check page state or selectors.');
+                debugLog('[Script] Neither "下一题" nor "提交试卷" button found. Check page state or selectors.');
             }
         }
     }
@@ -2497,11 +3214,18 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
      * This function will find and click the "待考试" tab if it's not already active,
      * then find and click the "开始考试" button for the first pending exam.
      */
+    function hasConfirmedEmptyExamList() {
+        return Array.from(document.querySelectorAll('.el-table__empty-text, .el-empty__description, .no-data, .empty-data'))
+            .some(element => isElementVisible(element) && /暂无数据|暂无.*考试|没有.*考试/.test(element.innerText));
+    }
+
     function handleExamListPage() {
         if (!isServiceActive) return;
-        console.log('[Script] handleExamListPage called.');
+        debugLog('[Script] handleExamListPage called.');
 
         const currentHash = window.location.hash.toLowerCase();
+        if (!/\/(?:onlineexam|openonlineexam)(?:[/?]|$)/.test(currentHash)) return;
+        if (Array.from(document.querySelectorAll('.el-loading-mask')).some(isElementVisible)) return;
         currentNavContext = GM_getValue('sclpa_nav_context', '');
         // 记录当前所在考试列表，考后自动返回用（专业课优先，公需课其次）。
         currentExamListRoute = currentHash.includes('/openonlineexam')
@@ -2510,7 +3234,7 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
 
         // If the context is 'course', we should not be automating exams. Navigate back.
         if (currentNavContext === 'course') {
-            console.log('[Script] Current navigation context is "course". Ignoring exam automation and navigating back to course list.');
+            debugLog('[Script] Current navigation context is "course". Ignoring exam automation and navigating back to course list.');
             safeNavigateBackToList();
             return;
         }
@@ -2518,10 +3242,10 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
         const pendingExamTab = findElementByText('div.radio-tab-tag', '待考试');
 
         if (pendingExamTab && !isUnfinishedTabActive(pendingExamTab)) {
-            console.log('[Script] Found "待考试" tab, clicking it...');
+            debugLog('[Script] Found "待考试" tab, clicking it...');
             clickElement(pendingExamTab);
             // After clicking, wait for the content to load, then re-evaluate
-            setTimeout(() => {
+            scriptSetTimeout(() => {
                 handleExamListPage();
             }, 2500);
             return;
@@ -2529,8 +3253,8 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
             // Check for "暂无数据" if on professional exam page
             if (currentHash.includes('/onlineexam')) {
                 const emptyDataText = document.querySelector('.el-table__empty-text');
-                if (emptyDataText && emptyDataText.innerText.includes('暂无数据')) {
-                    console.log('[Script] Professional Exam List: Detected "暂无数据". Switching to Public Exam List.');
+                if (emptyDataText && isElementVisible(emptyDataText) && emptyDataText.innerText.includes('暂无数据')) {
+                    debugLog('[Script] Professional Exam List: Detected "暂无数据". Switching to Public Exam List.');
                     if (advanceAllInOnePhaseIfExpected('specialized-exam')) return;
                     window.location.href = 'https://zyys.ihehang.com/#/openOnlineExam';
                     return; // Exit after navigation
@@ -2538,10 +3262,11 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
             }
 
             // If not "暂无数据" or on public exam page, attempt to start exam
-            console.log('[Script] "待考试" tab is active. Attempting to find "开始考试" button...');
+            debugLog('[Script] "待考试" tab is active. Attempting to find "开始考试" button...');
             attemptClickStartExamButton();
         } else {
-            console.log('[Script] No "待考试" tab or pending exam found. All exams might be completed.');
+            // 标签未挂载时不能认定列表为空。
+            if (!hasConfirmedEmptyExamList()) return;
             if (handleAllInOneExamPhaseExhausted()) return;
             notifyExamBatchFinished();
         }
@@ -2586,16 +3311,17 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
         }
 
         if (targetButton) {
-            console.log('[Script] Found "开始考试" button, clicking it...');
+            debugLog('[Script] Found "开始考试" button, clicking it...');
             lastStartedExamSignature = getExamRowSignature(targetButton);
             examSummaryNotified = false; // 新一批开始，重置“全部完成”提示标记
             clickElement(targetButton);
         } else if (startExamButtons.length > 0) {
-            console.log('[Script] 待考试列表中其余场次均已重试耗尽，停止自动考试并提示。');
+            debugLog('[Script] 待考试列表中其余场次均已重试耗尽，停止自动考试并提示。');
             if (handleAllInOneExamPhaseExhausted()) return;
             notifyExamBatchFinished();
         } else {
-            console.log('[Script] "开始考试" button not found on the page.');
+            debugLog('[Script] "开始考试" button not found on the page.');
+            if (!hasConfirmedEmptyExamList()) return;
             if (handleAllInOneExamPhaseExhausted()) return;
             notifyExamBatchFinished();
         }
@@ -2607,7 +3333,7 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
      */
     function handleGenericPopups() {
         if (!isServiceActive || isPopupBeingHandled) return;
-        console.log('[Script] handleGenericPopups called.');
+        debugLog('[Script] handleGenericPopups called.');
 
         if (hasFailedExamResult()) {
             handleFailedExamResult();
@@ -2615,9 +3341,11 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
         }
 
         const currentHash = window.location.hash.toLowerCase(); // Get current hash here
-        const examCompletionPopupMessage = document.querySelector('.el-message-box__message p');
-        const goToExamBtnInPopup = findElementByText('button.el-button--primary span', '前往考试');
-        const cancelBtnInPopup = findElementByText('button.el-button--default span', '取消');
+        const visibleMessageBox = Array.from(document.querySelectorAll('.el-message-box')).find(isElementVisible);
+        const examCompletionPopupMessage = visibleMessageBox?.querySelector('.el-message-box__message p');
+        const popupButtons = visibleMessageBox ? Array.from(visibleMessageBox.querySelectorAll('button')).filter(isElementVisible) : [];
+        const goToExamBtnInPopup = popupButtons.find(button => button.innerText.trim() === '前往考试');
+        const cancelBtnInPopup = popupButtons.find(button => button.innerText.trim() === '取消');
 
         if (examCompletionPopupMessage && examCompletionPopupMessage.innerText.includes('恭喜您已经完成所有课程学习') && goToExamBtnInPopup && cancelBtnInPopup) {
             // If on major player page, the new dedicated handler will manage this popup.
@@ -2628,20 +3356,28 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
             currentNavContext = GM_getValue('sclpa_nav_context', '');
             // Only handle this popup for course completion context on non-majorPlayerPage
             if (currentNavContext === 'course') {
-                console.log('[Script] Detected "恭喜您" completion popup on non-majorPlayerPage. Clicking "取消".');
+                debugLog('[Script] Detected "恭喜您" completion popup on non-majorPlayerPage. Clicking "取消".');
                 isPopupBeingHandled = true;
-                clickElement(cancelBtnInPopup.closest('button'));
-                setTimeout(() => { isPopupBeingHandled = false; }, 1000); // Reset flag after delay
+                clickElement(cancelBtnInPopup);
+                // 关闭仍可见的旧提示不代表新课程完成；视频必须确实结束才能返回列表。
+                const canLeaveCurrentCourse = /\/(?:imageandtext|articleplayerpage)(?:[/?]|$)/i.test(currentHash) ||
+                    (currentHash.includes('/openplayer') && document.querySelector('video')?.ended);
+                if (canLeaveCurrentCourse) safeNavigateAfterCourseCompletion();
+                scriptSetTimeout(() => { isPopupBeingHandled = false; }, 1000); // Reset flag after delay
                 return;
             }
         }
 
-        const genericBtn = findElementByText('button span', '确定') || findElementByText('button span', '进入下一节学习');
+        const visibleDialogButtons = Array.from(document.querySelectorAll('.el-message-box, .el-dialog'))
+            .filter(isElementVisible)
+            .flatMap(dialog => Array.from(dialog.querySelectorAll('button')).filter(isElementVisible));
+        const genericBtn = visibleDialogButtons.find(button => button.innerText.trim() === '确定') ||
+            visibleDialogButtons.find(button => button.innerText.trim() === '进入下一节学习');
         if (genericBtn) {
-            console.log(`[Script] Detected generic popup button: ${genericBtn.innerText.trim()}. Clicking it.`);
+            debugLog(`[Script] Detected generic popup button: ${genericBtn.innerText.trim()}. Clicking it.`);
             isPopupBeingHandled = true;
-            clickElement(genericBtn.closest('button'));
-            setTimeout(() => { isPopupBeingHandled = false; }, 2500);
+            clickElement(genericBtn);
+            scriptSetTimeout(() => { isPopupBeingHandled = false; }, 2500);
         }
     }
 
@@ -2667,7 +3403,7 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
             if (Math.abs(currentRate - targetRate) > 0.01) {
                 try {
                     video.playbackRate = targetRate;
-                    console.log(`[Script] 动态应用倍速: ${targetRate}x (从 ${currentRate}x 调整)`);
+                    debugLog(`[Script] 动态应用倍速: ${targetRate}x (从 ${currentRate}x 调整)`);
                 } catch (e) {
                     console.warn('[Script] 应用倍速失败:', e);
                 }
@@ -2698,7 +3434,7 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
             speedDisplay.textContent = `${targetRate}x`;
         }
 
-        console.log(`[Script] 动态倍速应用完成: ${targetRate}x`);
+        debugLog(`[Script] 动态倍速应用完成: ${targetRate}x`);
     }
 
     /**
@@ -2707,268 +3443,203 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
      * 不篡改浏览器原生属性描述符或页面计时器。
      */
     function initializeEnhancedVideoSpeedEngine() {
-        if (isVideoSpeedEngineInitialized && refreshVideoSpeedEngine) {
-            refreshVideoSpeedEngine();
-            return;
-        }
-
-        console.log(`[Script] 标准 HTML5 视频倍速引擎启动，目标倍速: ${CONFIG.VIDEO_PLAYBACK_RATE}x`);
-        const monitoredVideos = new WeakSet();
-
-        function applyVideoSpeed(video) {
-            if (!video || video.nodeType !== Node.ELEMENT_NODE) return;
-            const targetRate = CONFIG.VIDEO_PLAYBACK_RATE;
-            const currentRate = video.playbackRate;
-            if (Math.abs(currentRate - targetRate) > 0.01) {
-                try {
-                    video.defaultPlaybackRate = targetRate;
-                    video.playbackRate = targetRate;
-                    console.log(`[Script] H5 倍速已应用: ${targetRate}x (原倍速: ${currentRate}x)`);
-                } catch (e) {
-                    console.warn('[Script] 应用倍速失败:', e);
-                }
-            }
-        }
-
-        function applySpeedToAllVideos() {
-            document.querySelectorAll('video').forEach(video => {
-                applyVideoSpeed(video);
-                if (!monitoredVideos.has(video)) {
-                    monitoredVideos.add(video);
-                    enhanceVideoMonitoring(video);
-                }
-            });
-
+        if (!isServiceActive) return;
+        if (isVideoSpeedEngineInitialized && refreshVideoSpeedEngine) { refreshVideoSpeedEngine(); return; }
+        const videos = new Map();
+        const roots = new Map();
+        const frames = new Map();
+        let scanTimer = null;
+        let disposed = false;
+        const stats = { videos: 0, roots: 0, frames: 0, scans: 0 };
+        window.__sclpaVideoRuntime = stats;
+        function updateStats() { stats.videos = videos.size; stats.roots = roots.size; stats.frames = frames.size; }
+        function connectedDocument(owner) {
             try {
-                document.querySelectorAll('iframe').forEach(iframe => {
-                    iframe.contentDocument?.querySelectorAll('video').forEach(video => {
-                        applyVideoSpeed(video);
-                        if (!monitoredVideos.has(video)) {
-                            monitoredVideos.add(video);
-                            enhanceVideoMonitoring(video);
-                        }
-                    });
-                });
-            } catch (e) {
-            }
-
-            document.querySelectorAll('*').forEach(el => {
-                if (el.shadowRoot) {
-                    el.shadowRoot.querySelectorAll('video').forEach(video => {
-                        applyVideoSpeed(video);
-                        if (!monitoredVideos.has(video)) {
-                            monitoredVideos.add(video);
-                            enhanceVideoMonitoring(video);
-                        }
-                    });
+                while (owner !== document) {
+                    const frame = owner.defaultView?.frameElement;
+                    if (!frame?.isConnected) return false;
+                    owner = frame.ownerDocument;
                 }
-            });
+                return true;
+            } catch (_) { return false; }
         }
-
-        function enhanceVideoMonitoring(video) {
-            if (!video) return;
-            const rateDescriptor = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'playbackRate');
-
-            if (rateDescriptor?.get && rateDescriptor?.set) {
+        function attached(video) {
+            if (!video.isConnected) return false;
+            return connectedDocument(video.ownerDocument);
+        }
+        function apply(video) {
+            if (!isServiceActive || !attached(video)) return;
+            const rate = CONFIG.VIDEO_PLAYBACK_RATE;
+            try {
+                if (Math.abs(video.defaultPlaybackRate - rate) > 0.01) video.defaultPlaybackRate = rate;
+                if (Math.abs(video.playbackRate - rate) > 0.01) video.playbackRate = rate;
+            } catch (_) {}
+        }
+        function watch(video) {
+            if (videos.has(video) || !attached(video)) return;
+            let timer = null;
+            const original = Object.getOwnPropertyDescriptor(video, 'playbackRate');
+            const native = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'playbackRate');
+            const get = native?.get ? function() { return native.get.call(this); } : null;
+            if (get && native.set) {
                 try {
-                    Object.defineProperty(video, 'playbackRate', {
-                        configurable: true,
-                        get() {
-                            return rateDescriptor.get.call(this);
-                        },
-                        set() {
-                            // 课程页会反复写入 1x；始终以当前面板设置为准。
-                            return rateDescriptor.set.call(this, CONFIG.VIDEO_PLAYBACK_RATE);
+                    Object.defineProperty(video, 'playbackRate', { configurable: true, get,
+                        set(value) {
+                            const target = isServiceActive ? CONFIG.VIDEO_PLAYBACK_RATE : value;
+                            if (Math.abs(native.get.call(this) - target) > 0.01) native.set.call(this, target);
                         }
                     });
-                } catch (e) {
-                    console.warn('[Script] 无法安装视频倍速保护，降级为事件重试：', e);
-                }
-            } else {
-                console.warn('[Script] 未找到 HTMLMediaElement.playbackRate 描述符，无法安装倍速保护。');
+                } catch (_) {}
             }
-
-            const reapply = () => setTimeout(() => applyVideoSpeed(video), 100);
-            video.addEventListener('loadedmetadata', reapply);
-            video.addEventListener('canplay', reapply);
-            video.addEventListener('playing', reapply);
+            const reapply = () => {
+                if (!isServiceActive || timer !== null || disposed) return;
+                timer = scriptSetTimeout(() => { timer = null; apply(video); }, 100);
+            };
+            for (const event of ['loadedmetadata', 'canplay', 'playing', 'ratechange']) video.addEventListener(event, reapply);
             installBackgroundPlaybackGuard(video, reapply);
-            reapply();
-        }
-
-        applySpeedToAllVideos();
-
-        const observer = new MutationObserver((mutations) => {
-            let shouldScan = false;
-            mutations.forEach(mutation => {
-                if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
-                    mutation.addedNodes.forEach(node => {
-                        if (node.nodeName === 'VIDEO' || (node.querySelectorAll && node.querySelectorAll('video').length > 0)) {
-                            shouldScan = true;
-                        }
-                    });
+            videos.set(video, () => {
+                if (timer !== null) scriptClearTimeout(timer);
+                for (const event of ['loadedmetadata', 'canplay', 'playing', 'ratechange']) video.removeEventListener(event, reapply);
+                backgroundPlaybackGuards.get(video)?.();
+                backgroundPlaybackGuards.delete(video);
+                if (get && Object.getOwnPropertyDescriptor(video, 'playbackRate')?.get === get) {
+                    try { if (original) Object.defineProperty(video, 'playbackRate', original); else delete video.playbackRate; } catch (_) {}
                 }
             });
-            if (shouldScan) {
-                setTimeout(applySpeedToAllVideos, 100);
-            }
-        });
-
-        observer.observe(document.body || document.documentElement, {
-            childList: true,
-            subtree: true
-        });
-
-        refreshVideoSpeedEngine = applySpeedToAllVideos;
-        isVideoSpeedEngineInitialized = true;
-        applySpeedToAllVideos();
-
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', applySpeedToAllVideos, { once: true });
+            apply(video);
         }
-
-        console.log('[Script] 标准 HTML5 视频倍速引擎已启动。');
+        function queueScan() {
+            if (scanTimer !== null || disposed || !isServiceActive) return;
+            scanTimer = scriptSetTimeout(() => { scanTimer = null; scan(); }, 100);
+        }
+        function relevant(node) {
+            return node.nodeType === 1 && (node.matches('video,iframe') || node.shadowRoot || node.querySelector('video,iframe') || Array.from(node.querySelectorAll('*')).some(host => host.shadowRoot));
+        }
+        function observeRoot(root) {
+            if (roots.has(root)) return;
+            const observer = new MutationObserver(mutations => {
+                if (mutations.some(m => Array.from(m.removedNodes).some(relevant) || Array.from(m.addedNodes).some(relevant))) queueScan();
+                // 新增组件可能通过 Shadow DOM 挂载媒体，仅检查新子树。
+                for (const mutation of mutations) for (const node of mutation.addedNodes) {
+                    if (node.nodeType !== 1) continue;
+                    if (node.shadowRoot) { observeRoot(node.shadowRoot); queueScan(); }
+                    for (const host of node.querySelectorAll('*')) if (host.shadowRoot) { observeRoot(host.shadowRoot); queueScan(); }
+                }
+            });
+            observer.observe(root, { childList: true, subtree: true });
+            roots.set(root, observer);
+        }
+        function scan() {
+            if (disposed || !isServiceActive) return;
+            stats.scans++;
+            for (const [video, cleanup] of videos) if (!attached(video)) { cleanup(); videos.delete(video); }
+            for (const [frame, cleanup] of frames) if (!frame.isConnected) { cleanup(); frames.delete(frame); }
+            for (const [root, observer] of roots) {
+                const connected = root === document || (root.host ? root.host.isConnected && connectedDocument(root.host.ownerDocument) : connectedDocument(root));
+                if (!connected) { observer.disconnect(); roots.delete(root); }
+            }
+            for (const root of Array.from(roots.keys())) {
+                root.querySelectorAll('video').forEach(video => { watch(video); apply(video); });
+                for (const host of root.querySelectorAll('*')) if (host.shadowRoot) observeRoot(host.shadowRoot);
+                for (const frame of root.querySelectorAll('iframe')) {
+                    if (!frames.has(frame)) {
+                        const load = () => {
+                            for (const [oldRoot, observer] of roots) if (oldRoot !== document && !oldRoot.host && oldRoot.defaultView?.frameElement === frame) {
+                                observer.disconnect(); roots.delete(oldRoot);
+                            }
+                            queueScan();
+                        };
+                        frame.addEventListener('load', load);
+                        frames.set(frame, () => frame.removeEventListener('load', load));
+                    }
+                    try { if (frame.contentDocument) observeRoot(frame.contentDocument); } catch (_) {}
+                }
+            }
+            // 新发现的同源 iframe / shadow root 在下一轮扫描应用，最多同时保留一个扫描任务。
+            const pendingMedia = Array.from(roots.keys()).some(root => Array.from(root.querySelectorAll('video')).some(video => !videos.has(video)));
+            if (pendingMedia) queueScan();
+            updateStats();
+        }
+        function dispose() {
+            disposed = true;
+            if (scanTimer !== null) scriptClearTimeout(scanTimer);
+            scanTimer = null;
+            for (const cleanup of videos.values()) cleanup();
+            for (const observer of roots.values()) observer.disconnect();
+            for (const cleanup of frames.values()) cleanup();
+            videos.clear(); roots.clear(); frames.clear(); updateStats();
+            isVideoSpeedEngineInitialized = false;
+            refreshVideoSpeedEngine = null;
+            disposeVideoSpeedEngine = null;
+            window.removeEventListener('pagehide', dispose);
+        }
+        observeRoot(document);
+        refreshVideoSpeedEngine = queueScan;
+        disposeVideoSpeedEngine = dispose;
+        isVideoSpeedEngineInitialized = true;
+        window.addEventListener('pagehide', dispose);
+        scan();
     }
 
     // ===================================================================================
-    /**
-     * [Time Engine] Global time acceleration, including setTimeout, setInterval, and requestAnimationFrame
-     */
-    function accelerateTime() {
-        console.log(`[Script] Time acceleration engine started, rate: ${CONFIG.TIME_ACCELERATION_RATE}x`);
+    /** 只识别平台文章的 100ms 阅读计时，复用平台回调和保存完成流程。 */
+    function initializeArticleTimingEngine() {
+        if (window.__sclpaArticleTimingEngine) return;
+        const siteWindow = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
+        const nativeSetInterval = siteWindow.setInterval;
+        const nativeClearInterval = siteWindow.clearInterval;
+        const records = new Map();
+        const engine = { records, acceleratedTicks: 0 };
+        window.__sclpaArticleTimingEngine = engine;
 
-        const rate = CONFIG.TIME_ACCELERATION_RATE;
-        const percentage = 1 / rate;
-
-        let scriptStartTime = Date.now();
-        let lastDateTime = scriptStartTime;
-        let lastModifiedTime = scriptStartTime;
-
-        const DateOrigin = window.Date;
-        let DateModified = window.Date;
-
-        const trackedIntervals = new Map();
-        const trackedTimeouts = new Map();
-
-        let timerIdCounter = 0;
-
-        try {
-            const setTimeoutOrigin = window.setTimeout;
-            const setIntervalOrigin = window.setInterval;
-            const clearTimeoutOrigin = window.clearTimeout;
-            const clearIntervalOrigin = window.clearInterval;
-
-            window.setTimeout = function(callback, delay, ...args) {
-                if (typeof delay !== 'number' || delay <= 0) {
-                    return setTimeoutOrigin.call(window, callback, delay, ...args);
+        siteWindow.setInterval = function(callback, delay, ...args) {
+            let articleCallback = false;
+            if (typeof callback === 'function' && Number(delay) === 100 &&
+                /\/(?:imageandtext|articleplayerpage)(?:[/?]|$)/i.test(location.hash)) {
+                const source = Function.prototype.toString.call(callback);
+                articleCallback = source.includes('precossTime') && source.includes('ImageAndTextInfo') && source.includes('totalSeconds');
+            }
+            if (!articleCallback) return nativeSetInterval.call(this, callback, delay, ...args);
+            const record = { id: null, carry: 0, lastRate: 1, cancelled: false, lastTick: performance.now(), missingOwnerAt: null };
+            record.id = scriptSetInterval(function(...callbackArgs) {
+                const now = performance.now();
+                const elapsed = now - record.lastTick;
+                record.lastTick = now;
+                const component = document.querySelector('.image-and-text')?.__vue__;
+                const onArticle = /\/(?:imageandtext|articleplayerpage)(?:[/?]|$)/i.test(location.hash);
+                if (!component) record.missingOwnerAt ??= now; else record.missingOwnerAt = null;
+                if (!onArticle || (component?.countdown != null && component.countdown !== record.id) ||
+                    (record.missingOwnerAt !== null && now - record.missingOwnerAt > 5000)) {
+                    siteWindow.clearInterval(record.id);
+                    return;
                 }
-
-                const originalDelay = delay;
-                const hookedDelay = Math.floor(originalDelay * percentage);
-                const timerId = setTimeoutOrigin.call(window, function() {
-                    trackedTimeouts.delete(timerId);
-                    if (typeof callback === 'function') {
-                        callback.apply(this, arguments);
-                    } else if (typeof callback === 'string') {
-                        eval(callback);
-                    }
-                }, hookedDelay, ...args);
-
-                trackedTimeouts.set(timerId, {
-                    args: [callback, originalDelay, ...args],
-                    originDelay: originalDelay,
-                    hookedDelay: hookedDelay
-                });
-
-                return timerId;
-            };
-
-            window.setInterval = function(callback, delay, ...args) {
-                if (typeof delay !== 'number' || delay <= 0) {
-                    return setIntervalOrigin.call(window, callback, delay, ...args);
+                const active = GM_getValue('sclpa_service_active', true) && component?.countdown === record.id &&
+                    /\/(?:imageandtext|articleplayerpage)(?:[/?]|$)/i.test(location.hash);
+                const requested = Number(GM_getValue('sclpa_playback_rate', 1));
+                const rate = active && Number.isFinite(requested) ? Math.min(16, Math.max(1, requested)) : 1;
+                if (record.lastRate !== rate) record.carry = 0;
+                record.lastRate = rate;
+                // 用真实执行间隔维持倍率；长时间冻结不补算为已学习，更不积压完成请求。
+                record.carry += rate * (elapsed > 2000 ? 1 : Math.max(0, elapsed / 100));
+                const ticks = Math.floor(record.carry);
+                record.carry -= ticks;
+                for (let index = 0; index < ticks && !record.cancelled; index++) {
+                    callback.apply(this, callbackArgs);
+                    if (rate > 1) engine.acceleratedTicks++;
                 }
-
-                const originalDelay = delay;
-                const hookedDelay = Math.floor(originalDelay * percentage);
-                const intervalId = setIntervalOrigin.call(window, callback, hookedDelay, ...args);
-
-                trackedIntervals.set(intervalId, {
-                    args: [callback, originalDelay, ...args],
-                    originDelay: originalDelay,
-                    hookedDelay: hookedDelay
-                });
-
-                return intervalId;
-            };
-
-            window.clearTimeout = function(timerId) {
-                trackedTimeouts.delete(timerId);
-                return clearTimeoutOrigin.call(window, timerId);
-            };
-
-            window.clearInterval = function(timerId) {
-                trackedIntervals.delete(timerId);
-                return clearIntervalOrigin.call(window, timerId);
-            };
-
-            window.Date = function(...args) {
-                if (args.length === 0) {
-                    const now = DateOrigin.now();
-                    const delta = now - lastDateTime;
-                    const adjustedDelta = delta * rate;
-                    const newTime = lastModifiedTime + adjustedDelta;
-                    lastModifiedTime = newTime;
-                    lastDateTime = now;
-                    return new Date(newTime);
-                } else if (args.length === 1 && typeof args[0] === 'number') {
-                    return new DateOrigin(args[0]);
-                } else {
-                    return new (Function.prototype.bind.apply(DateOrigin, [null].concat(args)))();
-                }
-            };
-
-            window.Date.prototype = DateOrigin.prototype;
-            window.Date.now = function() {
-                const now = DateOrigin.now();
-                const delta = now - lastDateTime;
-                const adjustedDelta = delta * rate;
-                const newTime = lastModifiedTime + adjustedDelta;
-                return Math.floor(newTime);
-            };
-            window.Date.prototype.now = window.Date.now;
-
-            const originalDateToString = DateOrigin.prototype.toString;
-            window.Date.prototype.toString = function() {
-                const now = DateOrigin.now();
-                const delta = now - lastDateTime;
-                const adjustedDelta = delta * rate;
-                const newTime = lastModifiedTime + adjustedDelta;
-                const fakeDate = new DateOrigin(newTime);
-                return originalDateToString.call(fakeDate);
-            };
-
-            window.Date.prototype.getTime = function() {
-                const now = DateOrigin.now();
-                const delta = now - lastDateTime;
-                const adjustedDelta = delta * rate;
-                return lastModifiedTime + adjustedDelta;
-            };
-
-            hook(window, 'requestAnimationFrame', (original) => {
-                let firstTimestamp = -1;
-                return (callback) => {
-                    return original.call(window, (timestamp) => {
-                        if (firstTimestamp < 0) firstTimestamp = timestamp;
-                        const acceleratedTimestamp = firstTimestamp + (timestamp - firstTimestamp) * rate;
-                        callback(acceleratedTimestamp);
-                    });
-                };
-            });
-
-            console.log(`[Script] Time acceleration hooks applied successfully (rate: ${rate}x)`);
-        } catch (e) {
-            console.error('[Script Error] Failed to apply time acceleration hooks:', e);
-        }
+            }, delay, ...args);
+            records.set(record.id, record);
+            return record.id;
+        };
+        siteWindow.clearInterval = function(id) {
+            const record = records.get(id);
+            if (record) {
+                record.cancelled = true;
+                records.delete(id);
+                return scriptClearInterval(id);
+            }
+            return nativeClearInterval.call(this, id);
+        };
     }
 
     /**
@@ -2977,7 +3648,7 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
      * 为单个播放器安装的倍速 setter，后者会破坏站点自己的可见性逻辑。
      */
     function initializeVideoPlaybackFixes() {
-        console.log('[Script] 初始化后台播放守护：保留浏览器原生可见性与属性 API。');
+        debugLog('[Script] 初始化后台播放守护：保留浏览器原生可见性与属性 API。');
     }
 
     /**
@@ -2985,15 +3656,15 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
      * 浏览器仍可能对后台标签进行原生节流；本函数不会修改浏览器调度策略。
      */
     function installBackgroundPlaybackGuard(video, reapplySpeed) {
-        if (!video || video.dataset.sclpaBackgroundGuardInstalled) return;
+        if (!video || backgroundPlaybackGuards.has(video)) return;
         video.dataset.sclpaBackgroundGuardInstalled = 'true';
 
         let restoreTimer = null;
         const restorePlayback = () => {
-            if (video.ended || restoreTimer) return;
-            restoreTimer = setTimeout(() => {
+            if (!isServiceActive || !video.isConnected || video.ended || restoreTimer) return;
+            restoreTimer = scriptSetTimeout(() => {
                 restoreTimer = null;
-                if (video.ended) return;
+                if (!isServiceActive || !video.isConnected || video.ended) return;
                 reapplySpeed();
                 if (video.paused) {
                     video.play().catch(error => {
@@ -3003,13 +3674,35 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
             }, 150);
         };
 
-        document.addEventListener('visibilitychange', () => {
-            if (document.hidden) restorePlayback();
-        }, true);
+        const handleVisibilityChange = () => {
+            if (video.ownerDocument.hidden) restorePlayback();
+        };
+        const handlePause = () => {
+            if (video.ownerDocument.hidden && !video.ended) restorePlayback();
+        };
+        const ownerDocument = video.ownerDocument;
+        const ownerWindow = ownerDocument.defaultView;
+        ownerDocument.addEventListener('visibilitychange', handleVisibilityChange, true);
         window.addEventListener('blur', restorePlayback, true);
-        video.addEventListener('pause', () => {
-            if (document.hidden && !video.ended) restorePlayback();
+        if (ownerWindow && ownerWindow !== window) ownerWindow.addEventListener('blur', restorePlayback, true);
+        video.addEventListener('pause', handlePause);
+        backgroundPlaybackGuards.set(video, () => {
+            scriptClearTimeout(restoreTimer);
+            ownerDocument.removeEventListener('visibilitychange', handleVisibilityChange, true);
+            window.removeEventListener('blur', restorePlayback, true);
+            if (ownerWindow && ownerWindow !== window) ownerWindow.removeEventListener('blur', restorePlayback, true);
+            video.removeEventListener('pause', handlePause);
+            delete video.dataset.sclpaBackgroundGuardInstalled;
         });
+    }
+
+    function cleanupDetachedVideoGuards() {
+        for (const [video, cleanup] of backgroundPlaybackGuards) {
+            if (!video.isConnected) {
+                cleanup();
+                backgroundPlaybackGuards.delete(video);
+            }
+        }
     }
 
 
@@ -3022,7 +3715,7 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
         const returnUrl = hash.includes('public') || hash.includes('openplayer') || hash.includes('imageandtext') || hash.includes('openonlineexam')
             ? 'https://zyys.ihehang.com/#/publicDemand'
             : 'https://zyys.ihehang.com/#/specialized';
-        console.log(`[Script] Fallback: Navigating back to list: ${returnUrl}`);
+        debugLog(`[Script] Fallback: Navigating back to list: ${returnUrl}`);
         window.location.href = returnUrl;
     }
 
@@ -3033,7 +3726,7 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
     function safeNavigateAfterCourseCompletion() {
         const hash = window.location.hash.toLowerCase();
         currentNavContext = GM_getValue('sclpa_nav_context', ''); // Ensure context is fresh
-        console.log('[Script] safeNavigateAfterCourseCompletion called. Current hash:', hash, 'Context:', currentNavContext);
+        debugLog('[Script] safeNavigateAfterCourseCompletion called. Current hash:', hash, 'Context:', currentNavContext);
 
         // Check if the current page is a player page (video or article player)
         if (hash.includes('/majorplayerpage') || hash.includes('/articleplayerpage') || hash.includes('/openplayer') || hash.includes('/imageandtext')) {
@@ -3041,14 +3734,14 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
             if (currentNavContext === 'exam') {
                 const goToExamButton = findElementByText('button span', '前往考试');
                 if (goToExamButton) {
-                    console.log('[Script] Course completed. Context is "exam". Found "前往考试" button, clicking it.');
+                    debugLog('[Script] Course completed. Context is "exam". Found "前往考试" button, clicking it.');
                     currentExamListRoute = hash.includes('openplayer') || hash.includes('imageandtext')
                         ? 'https://zyys.ihehang.com/#/openOnlineExam'
                         : 'https://zyys.ihehang.com/#/onlineExam';
                     clickElement(goToExamButton.closest('button'));
                     return; // Exit after clicking exam button
                 } else {
-                    console.log('[Script] Course completed. Context is "exam" but "前往考试" button not found, navigating back to exam list.');
+                    debugLog('[Script] Course completed. Context is "exam" but "前往考试" button not found, navigating back to exam list.');
                     // Navigate to appropriate exam list if '前往考试' isn't found
                     const examReturnUrl = hash.includes('openplayer') || hash.includes('imageandtext') ? 'https://zyys.ihehang.com/#/openOnlineExam' : 'https://zyys.ihehang.com/#/onlineExam';
                     currentExamListRoute = examReturnUrl;
@@ -3058,10 +3751,10 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
             } else {
                 // For majorPlayerPage, navigation is now handled by the dedicated handler.
                 if (hash.includes('/majorplayerpage')) {
-                    console.log('[Script] Professional Course completed. Awaiting main loop handler for navigation.');
+                    debugLog('[Script] Professional Course completed. Awaiting main loop handler for navigation.');
                 } else {
                     // For public courses (or other non-majorPlayerPage players), use general navigation
-                    console.log('[Script] Public Course completed. Navigating back to general course list.');
+                    debugLog('[Script] Public Course completed. Navigating back to general course list.');
                     safeNavigateBackToList();
                 }
                 return; // Exit after attempting navigation
@@ -3069,7 +3762,7 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
         }
 
         // Fallback for other cases (e.g., if this function is called from a non-player page unexpectedly)
-        console.log('[Script] safeNavigateAfterCourseCompletion called from non-player page or unhandled scenario. Navigating back to general course list.');
+        debugLog('[Script] safeNavigateAfterCourseCompletion called from non-player page or unhandled scenario. Navigating back to general course list.');
         safeNavigateBackToList();
     }
 
@@ -3085,9 +3778,10 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
      */
     function handleMajorPlayerPage() {
         // Priority 1: Check for the "Congratulations" popup. Its presence means the course is finished.
-        const completionPopup = document.querySelector('.el-message-box');
+        const completionPopup = Array.from(document.querySelectorAll('.el-message-box'))
+            .find(popup => isElementVisible(popup) && popup.innerText.includes('恭喜您已经完成所有课程学习'));
         if (completionPopup && completionPopup.innerText.includes('恭喜您已经完成所有课程学习')) {
-            console.log('[Script] Completion popup detected. This signifies the course is finished. Navigating to professional courses list.');
+            debugLog('[Script] Completion popup detected. This signifies the course is finished. Navigating to professional courses list.');
             const navButton = document.getElementById('nav-specialized-btn');
             if (navButton) {
                 clickElement(navButton);
@@ -3109,7 +3803,7 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
      */
     function router() {
         const hash = window.location.hash.toLowerCase();
-        console.log('[Script] Router: Current hash is', hash);
+        debugLog('[Script] Router: Current hash is', hash);
         if (hash.includes('/specialized')) {
             handleCourseListPage('专业课');
         } else if (hash.includes('/publicdemand')) {
@@ -3121,7 +3815,7 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
         } else if (hash.includes('/onlineexam') || hash.includes('/openonlineexam')) {
             handleExamListPage();
         } else {
-            console.log('[Script] Router: No specific handler for current hash, idling.');
+            debugLog('[Script] Router: No specific handler for current hash, idling.');
         }
     }
 
@@ -3129,14 +3823,15 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
      * Main script loop, executed every 2 seconds
      */
     function mainLoop() {
-        console.log('[Script] Main loop running...');
+        runtimeKeepAwake.sync();
+        debugLog('[Script] Main loop running...');
         const currentHash = window.location.hash; // Get current hash at the start of the loop
 
         // Detect hash change to reset states
         if (currentHash !== currentPageHash) {
             const oldHash = currentPageHash;
             currentPageHash = currentHash; // Update currentPageHash
-            console.log(`[Script] Hash changed from ${oldHash} to ${currentHash}.`);
+            debugLog(`[Script] Hash changed from ${oldHash} to ${currentHash}.`);
             // SPA 路由通常不会重载脚本；确认路由变化后允许下一阶段继续前进。
             allInOneTransitionPending = false;
 
@@ -3146,8 +3841,9 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
                 if (aiPanel) aiPanel.remove();
                 currentQuestionBatchText = ''; // Reset batch text on exam page exit
                 isAiAnswerPending = false;
+                aiBatchGeneration++;
                 isSubmittingExam = false;
-                console.log('[Script] Exited examination page, reset AI related flags.');
+                debugLog('[Script] Exited examination page, reset AI related flags.');
             }
         }
 
@@ -3157,7 +3853,7 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
         if (currentHash.includes('/specialized') || currentHash.includes('/publicdemand') ||
             currentHash.includes('/onlineexam') || currentHash.includes('/openonlineexam')) {
             if (unfinishedTabClicked) { // Only log if it's actually being reset
-                console.log('[Script] Resetting unfinishedTabClicked flag for current list page.');
+                debugLog('[Script] Resetting unfinishedTabClicked flag for current list page.');
             }
             unfinishedTabClicked = false;
         }
@@ -3182,9 +3878,9 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
     /**
      * Start the script
      */
-    window.addEventListener('load', () => {
-        console.log(`[Script] Sichuan Licensed Pharmacist Continuing Education (v1.3.1) started.`);
-        console.log(`[Script] Service status: ${isServiceActive ? 'Running' : 'Paused'} | Current speed: ${currentPlaybackRate}x`);
+    function startScript() {
+        debugLog(`[Script] Sichuan Licensed Pharmacist Continuing Education (v1.4.0) started.`);
+        debugLog(`[Script] Service status: ${isServiceActive ? 'Running' : 'Paused'} | Current speed: ${currentPlaybackRate}x`);
         currentPageHash = window.location.hash;
         currentNavContext = GM_getValue('sclpa_nav_context', ''); // Load initial navigation context
 
@@ -3200,9 +3896,21 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
             console.error('[Script Error] Failed to create Mode Switcher Panel during load:', e);
         }
 
+        runtimeKeepAwake.sync();
+
         // Start the main loop
-        setInterval(mainLoop, 2000);
-        console.log('[Script] Main loop initiated.');
-    });
+        scriptSetInterval(mainLoop, 2000);
+        debugLog('[Script] Main loop initiated.');
+    }
+
+    // 在站点创建文章计时器前安装；不启用旧的全局 Date/计时器加速。
+    initializeArticleTimingEngine();
+
+    // 脚本管理器可能在 load 已触发后注入；两种时机均走同一个启动入口。
+    if (document.readyState === 'complete') {
+        startScript();
+    } else {
+        window.addEventListener('load', startScript, { once: true });
+    }
 
 })();

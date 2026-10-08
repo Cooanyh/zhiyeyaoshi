@@ -4,6 +4,9 @@ const fs=require('node:fs'),path=require('node:path'),http=require('node:http'),
 const endpoint=process.env.TEST_CDP_URL;
 if(!endpoint || !/^http:\/\/127\.0\.0\.1:\d+$/.test(endpoint))throw Error('Set TEST_CDP_URL to an owned isolated test browser');
 let source=fs.readFileSync(path.join(__dirname,'../zhiyeyaoshi.user.js'),'utf8');
+const articleOnly=process.env.NATIVE_BACKGROUND_ARTICLE_ONLY==='1';
+const backgroundSeconds=Number(process.env.NATIVE_BACKGROUND_SECONDS||0);
+assert.ok(Number.isFinite(backgroundSeconds)&&backgroundSeconds>=0&&backgroundSeconds<=1800,'background duration must be 0–1800 seconds');
 let fixtureSource=`
 window.entered=0;window.returned=0;window.articleDone=false;window.articleTab=false;window.notifications=0;
 window.mockValues={sclpa_service_active:false,sclpa_playback_rate:8};
@@ -16,10 +19,11 @@ function renderFixture(){
  if(location.hash.includes('imageAndText')){
   root.innerHTML='<div class="image-and-text"><div class="action-btn"><span class="label">阅读中 100%</span></div></div>';
   const ImageAndTextInfo={precossTime:0,totalSeconds:20000,isWanCheng:false,isTongGuo:false};
+  const articleStarted=performance.now();
   const owner={ImageAndTextInfo,countdown:null};root.firstChild.__vue__=owner;
   owner.countdown=setInterval(function(){
    ImageAndTextInfo.precossTime+=100;
-   if(ImageAndTextInfo.precossTime>=ImageAndTextInfo.totalSeconds){clearInterval(owner.countdown);ImageAndTextInfo.isWanCheng=true;articleDone=true;}
+   if(ImageAndTextInfo.precossTime>=ImageAndTextInfo.totalSeconds){clearInterval(owner.countdown);ImageAndTextInfo.isWanCheng=true;articleDone=true;window.articleTiming={elapsedMs:performance.now()-articleStarted,learnedMs:ImageAndTextInfo.precossTime};}
   },100);
  }else if(/onlineExam|openOnlineExam/.test(location.hash)){
   root.innerHTML='<div class="radio-tab-tag radio-tab-tag-ed">待考试</div><div class="el-table__empty-text">暂无数据</div>';
@@ -34,6 +38,7 @@ function renderFixture(){
 addEventListener('hashchange',()=>{if(articleDone&&location.hash.includes('publicDemand'))returned++;renderFixture();});
 renderFixture();
 `;
+if(backgroundSeconds)fixtureSource=fixtureSource.replace('totalSeconds:20000','totalSeconds:'+Math.ceil((backgroundSeconds+15)*8000));
 const server=http.createServer((request,response)=>{
  response.setHeader('Content-Type','text/html; charset=utf-8');
  response.end('<!doctype html><meta charset="utf-8"><div id="fixture"></div><script>'+fixtureSource+'</script><script>'+source+'</script>');
@@ -59,20 +64,35 @@ function delay(ms){return new Promise(resolve=>setTimeout(resolve,ms));}
   await call('Page.enable');await call('Page.navigate',{url:origin+'/#/publicDemand'});
   for(let i=0;i<30;i++){if(await evaluate('Boolean(window.backgroundTest)'))break;await delay(200);}
   const {windowId}=await call('Browser.getWindowForTarget',{targetId:target.id});
+  if(articleOnly){
+   await evaluate('backgroundTest.run()');
+   for(let i=0;i<150;i++){if(await evaluate('window.entered===1'))break;await delay(200);}
+   assert.equal(await evaluate('window.entered'),1,'must enter article before article-only background check');
+  }
   await call('Browser.setWindowBounds',{windowId,bounds:{windowState:'minimized'}});
-  for(let i=0;i<20;i++){if(await evaluate('document.hidden'))break;await delay(200);}
+  for(let i=0;i<30;i++){if((await call('Browser.getWindowBounds',{windowId})).bounds.windowState==='minimized' && await evaluate('document.hidden'))break;await delay(200);}
+  assert.equal((await call('Browser.getWindowBounds',{windowId})).bounds.windowState,'minimized','must actually minimize the owned native window');
   assert.equal(await evaluate('document.hidden'),true,'must test native hidden state');
-  await evaluate('backgroundTest.run()');
+  await evaluate('window.nativeFocusCalls=[];const originalWindowFocus=window.focus;window.focus=function(...args){nativeFocusCalls.push({at:performance.now(),stack:new Error().stack});return originalWindowFocus.apply(this,args);};window.nativeVisibilityEvents=[];document.addEventListener("visibilitychange",()=>nativeVisibilityEvents.push({hidden:document.hidden,at:performance.now(),focus:document.hasFocus()}))');
+  if(!articleOnly)await evaluate('backgroundTest.run()');
   const started=Date.now();let last;
-  for(let i=0;i<60;i++){
+  for(let i=0;i<Math.ceil((backgroundSeconds+150)/2);i++){
    await delay(2000);
-   last=await evaluate('({hidden:document.hidden,phase:backgroundTest.phase(),active:GM_getValue("sclpa_service_active",false),entered,returned,done:articleDone,jobs:__sclpaBackgroundScheduler.pending,mode:__sclpaBackgroundScheduler.mode,guards:backgroundTest.guards()})');
+   last=await evaluate('({hidden:document.hidden,phase:backgroundTest.phase(),active:GM_getValue("sclpa_service_active",false),entered,returned,done:articleDone,jobs:__sclpaBackgroundScheduler.pending,mode:__sclpaBackgroundScheduler.mode,guards:backgroundTest.guards(),readMs:document.querySelector(".image-and-text")?.__vue__?.ImageAndTextInfo.precossTime})');
+   if(!last.hidden)console.log('VISIBILITY INTERRUPTED '+JSON.stringify({state:last,window:await call('Browser.getWindowBounds',{windowId}),events:await evaluate('nativeVisibilityEvents'),focusCalls:await evaluate('nativeFocusCalls')}));
    assert.equal(last.hidden,true,'automation must not require foreground focus');
+   assert.ok(last.jobs<6,'background jobs must remain bounded');
    if(i%5===0)console.log('BACKGROUND '+Math.round((Date.now()-started)/1000)+'s '+JSON.stringify(last));
    if(last.done&&!last.active)break;
   }
   assert.equal(last.done,true);assert.equal(last.entered,1);assert.equal(last.returned,1);assert.equal(last.active,false);assert.equal(last.guards,0);
   assert.equal(await evaluate('__sclpaArticleTimingEngine.records.size'),0);
-  console.log('PASS: native hidden browser, same-route video-to-article phase, 8x article, completion acknowledgment, return, both empty exam phases and automatic release');
+  const timing=await evaluate('window.articleTiming');
+  assert.equal(await evaluate('nativeVisibilityEvents.some(event=>!event.hidden)'),false,'no transient foreground activation');
+  const actualRate=timing.learnedMs/timing.elapsedMs;
+  assert.ok(actualRate>5.5&&actualRate<9.5,'article timing must approximately follow 8x under native background scheduling');
+  if(backgroundSeconds)assert.ok(Date.now()-started>=backgroundSeconds*1000,'long background duration must actually elapse');
+  console.log('TIMING '+JSON.stringify({...timing,actualRate}));
+  console.log('PASS: native hidden browser, '+(articleOnly?'article-only start':'same-route video-to-article phase')+', 8x article, completion acknowledgment, return, both empty exam phases and automatic release');
  }finally{await call('Page.navigate',{url:'about:blank'}).catch(()=>{});socket.close();server.close();}
 })().catch(error=>{server.close();console.error(error);process.exitCode=1;});

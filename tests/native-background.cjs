@@ -3,7 +3,7 @@
 const fs=require('node:fs'),path=require('node:path'),http=require('node:http'),assert=require('node:assert/strict');
 const endpoint=process.env.TEST_CDP_URL;
 if(!endpoint || !/^http:\/\/127\.0\.0\.1:\d+$/.test(endpoint))throw Error('Set TEST_CDP_URL to an owned isolated test browser');
-let source=fs.readFileSync(path.join(__dirname,'../zhiyeyaoshi.user.js'),'utf8');
+let source=fs.readFileSync(path.join(__dirname,'../zhiyeyaoshi-beta.user.js'),'utf8');
 const articleOnly=process.env.NATIVE_BACKGROUND_ARTICLE_ONLY==='1';
 const backgroundSeconds=Number(process.env.NATIVE_BACKGROUND_SECONDS||0);
 assert.ok(Number.isFinite(backgroundSeconds)&&backgroundSeconds>=0&&backgroundSeconds<=1800,'background duration must be 0–1800 seconds');

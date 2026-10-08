@@ -10,7 +10,7 @@ const sandbox={URL,URLSearchParams,console:{info(){},warn(){},error(){},debug(){
 sandbox.window=sandbox;
 const hooks=`window.mediaTest={load:handleVideoLoading,reconcile:reconcileVideoLoadingIndicator,complete:hasConfirmedPublicVideoCompletion,article:handleArticleReadingPage,reset:()=>{resetVideoLoadFailures();isServiceActive=true;isChangingChapter=false;},failures:()=>videoLoadFailures,active:()=>isServiceActive};safeNavigateBackToList=()=>{window.navCount++};safeNavigateAfterCourseCompletion=()=>{window.navCount++};`;
 sandbox.navCount=0;
-const source=fs.readFileSync(path.join(__dirname,'../zhiyeyaoshi.user.js'),'utf8');
+const source=fs.readFileSync(path.join(__dirname,'../zhiyeyaoshi-beta.user.js'),'utf8');
 vm.runInNewContext(source.replace(/\}\)\(\);\s*$/,hooks+'})();'),sandbox);
 const h=sandbox.mediaTest;
 const video={currentTime:0,readyState:0,paused:false,ended:false,error:null,load(){loads++},play(){return Promise.resolve()},closest(){return null}};

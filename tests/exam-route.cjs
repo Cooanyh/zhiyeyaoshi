@@ -1,5 +1,5 @@
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
-const source=fs.readFileSync(require('node:path').join(__dirname,'../zhiyeyaoshi.user.js'),'utf8');
+const source=fs.readFileSync(require('node:path').join(__dirname,'../zhiyeyaoshi-beta.user.js'),'utf8');
 const values={},prompts=[];let items=[];let nextAnswer='1.C';
 const doc={hidden:false,readyState:'loading',addEventListener(){},getElementById(){return null},querySelectorAll(s){return s==='.examination-body-item'?items:[]},querySelector(){return null}};
 const sandbox={URL:URL,console:{log(){},warn(){},error(){},info(){}},document:doc,navigator:{},crypto:require('node:crypto').webcrypto,performance,Blob,Map,Set,AbortController,Promise,Date,Number,Math,JSON,sessionStorage:{getItem(){return null},setItem(){}},GM_getValue:(k,d)=>k in values?values[k]:d,GM_setValue:(k,v)=>values[k]=v,GM_addStyle(){},setTimeout(){return 1},clearTimeout(){},setInterval(){return 1},clearInterval(){},addEventListener(){},location:{hash:'#/examination'}};sandbox.window=sandbox;

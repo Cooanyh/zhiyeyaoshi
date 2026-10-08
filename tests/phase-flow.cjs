@@ -1,7 +1,7 @@
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
 const {chromium}=require(process.env.PLAYWRIGHT_MODULE_PATH||'playwright');
 const fixture=fs.readFileSync(path.join(__dirname,'native-background.cjs'),'utf8').match(/let fixtureSource=`([\s\S]*?)`;/)[1];
-const source=fs.readFileSync(path.join(__dirname,'../zhiyeyaoshi.user.js'),'utf8').replace(/\}\)\(\);\s*$/,'window.backgroundTest={phase:()=>allInOnePhase,run:()=>{isAllInOneMode=true;allInOnePhase="public-video";allInOneTransitionPending=false;GM_setValue("sclpa_public_target","video");setRuntimeServiceActive(true);},guards:()=>backgroundPlaybackGuards.size};})();');
+const source=fs.readFileSync(path.join(__dirname,'../zhiyeyaoshi-beta.user.js'),'utf8').replace(/\}\)\(\);\s*$/,'window.backgroundTest={phase:()=>allInOnePhase,run:()=>{isAllInOneMode=true;allInOnePhase="public-video";allInOneTransitionPending=false;GM_setValue("sclpa_public_target","video");setRuntimeServiceActive(true);},guards:()=>backgroundPlaybackGuards.size};})();');
 (async()=>{
  const browser=await chromium.launch({headless:true,...(process.env.BROWSER_EXECUTABLE?{executablePath:process.env.BROWSER_EXECUTABLE}:{})});
  try{

@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const assert = require('node:assert/strict');
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE_PATH || 'playwright');
-const source = fs.readFileSync(path.join(__dirname, '../zhiyeyaoshi.user.js'), 'utf8');
+const source = fs.readFileSync(path.join(__dirname, '../zhiyeyaoshi-beta.user.js'), 'utf8');
 const instrumented = source.replace(/\}\)\(\);\s*$/, `
 window.testRuntime = {
   service: setRuntimeServiceActive,

@@ -1,13 +1,15 @@
 {
   "name": "zhiyeyaoshi-regression",
   "private": true,
-  "version": "1.4.0",
+  "version": "1.4.0-beta.1",
   "scripts": {
-    "test": "node --check zhiyeyaoshi.user.js && node tests/exam-route.cjs && node tests/media-logic.cjs && node tests/notifications.cjs && node tests/phase-flow.cjs && node tests/browser-runtime.cjs",
+    "test": "node --check zhiyeyaoshi.user.js && node --check zhiyeyaoshi-beta.user.js && node tests/exam-route.cjs && node tests/media-logic.cjs && node tests/notifications.cjs && node tests/phase-flow.cjs && node tests/browser-runtime.cjs",
     "test:background": "node tests/native-background.cjs"
   },
   "devDependencies": {
     "playwright": "1.62.1"
   },
-  "engines": { "node": ">=20" }
+  "engines": {
+    "node": ">=20"
+  }
 }

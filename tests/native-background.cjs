@@ -63,6 +63,8 @@ function delay(ms){return new Promise(resolve=>setTimeout(resolve,ms));}
  try{
   await call('Page.enable');await call('Page.navigate',{url:origin+'/#/publicDemand'});
   for(let i=0;i<30;i++){if(await evaluate('Boolean(window.backgroundTest)'))break;await delay(200);}
+  await evaluate('document.getElementById("mode-switcher-toggle-collapse").click()');
+  assert.equal(await evaluate('document.getElementById("mode-switcher-panel").classList.contains("collapsed")'),true,'native background check uses collapsed panel');
   const {windowId}=await call('Browser.getWindowForTarget',{targetId:target.id});
   if(articleOnly){
    await evaluate('backgroundTest.run()');
@@ -81,6 +83,8 @@ function delay(ms){return new Promise(resolve=>setTimeout(resolve,ms));}
    last=await evaluate('({hidden:document.hidden,phase:backgroundTest.phase(),active:GM_getValue("sclpa_service_active",false),entered,returned,done:articleDone,jobs:__sclpaBackgroundScheduler.pending,mode:__sclpaBackgroundScheduler.mode,guards:backgroundTest.guards(),readMs:document.querySelector(".image-and-text")?.__vue__?.ImageAndTextInfo.precossTime})');
    if(!last.hidden)console.log('VISIBILITY INTERRUPTED '+JSON.stringify({state:last,window:await call('Browser.getWindowBounds',{windowId}),events:await evaluate('nativeVisibilityEvents'),focusCalls:await evaluate('nativeFocusCalls')}));
    assert.equal(last.hidden,true,'automation must not require foreground focus');
+   assert.equal(await evaluate('document.getElementById("mode-switcher-panel").classList.contains("collapsed")'),true);
+   const awake=await evaluate('__sclpaRuntimeKeepAwake');if(last.active){assert.equal(awake.running,true);assert.equal(awake.webLock,'held');}else assert.equal(awake.running,false);
    assert.ok(last.jobs<6,'background jobs must remain bounded');
    if(i%5===0)console.log('BACKGROUND '+Math.round((Date.now()-started)/1000)+'s '+JSON.stringify(last));
    if(last.done&&!last.active)break;
@@ -93,6 +97,6 @@ function delay(ms){return new Promise(resolve=>setTimeout(resolve,ms));}
   assert.ok(actualRate>5.5&&actualRate<9.5,'article timing must approximately follow 8x under native background scheduling');
   if(backgroundSeconds)assert.ok(Date.now()-started>=backgroundSeconds*1000,'long background duration must actually elapse');
   console.log('TIMING '+JSON.stringify({...timing,actualRate}));
-  console.log('PASS: native hidden browser, '+(articleOnly?'article-only start':'same-route video-to-article phase')+', 8x article, completion acknowledgment, return, both empty exam phases and automatic release');
+  console.log('PASS: collapsed native hidden browser, '+(articleOnly?'article-only start':'same-route video-to-article phase')+', 8x article, completion acknowledgment, return, both empty exam phases and automatic release');
  }finally{await call('Page.navigate',{url:'about:blank'}).catch(()=>{});socket.close();server.close();}
 })().catch(error=>{server.close();console.error(error);process.exitCode=1;});

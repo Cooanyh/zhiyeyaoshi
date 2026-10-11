@@ -8,7 +8,7 @@ const source=fs.readFileSync(path.join(__dirname,'../zhiyeyaoshi-beta.user.js'),
   const page=await browser.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
   await page.route('https://zyys.ihehang.com/**',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><meta charset="utf-8"><div id="fixture"></div><script>'+fixture+'</script><script>'+source+'</script>'}));
   await page.goto('https://zyys.ihehang.com/#/publicDemand');
-  await page.waitForFunction(()=>window.backgroundTest);await page.evaluate(()=>backgroundTest.run());
+  await page.waitForFunction(()=>window.backgroundTest);await page.evaluate(()=>backgroundTest.run());await page.locator('#mode-switcher-toggle-collapse').click();assert.equal(await page.locator('#mode-switcher-content').isVisible(),false);
   for(let i=0;i<45;i++){
    await page.waitForTimeout(2000);
    const state=await page.evaluate(()=>({phase:backgroundTest.phase(),active:GM_getValue('sclpa_service_active',false),entered,returned,done:articleDone,jobs:__sclpaBackgroundScheduler.pending}));
@@ -17,7 +17,7 @@ const source=fs.readFileSync(path.join(__dirname,'../zhiyeyaoshi-beta.user.js'),
   }
   const final=await page.evaluate(()=>({done:articleDone,entered,returned,active:GM_getValue('sclpa_service_active',false),guards:backgroundTest.guards(),articleTimers:__sclpaArticleTimingEngine.records.size}));
   assert.deepEqual(final,{done:true,entered:1,returned:1,active:false,guards:0,articleTimers:0});
-  assert.deepEqual(errors,[]);
-  console.log('PASS: full same-route phase flow, article acknowledgment and return, both empty exam phases, completion release (headless fixture)');
+  assert.equal(await page.locator('#mode-switcher-content').isVisible(),false);assert.deepEqual(errors,[]);
+  console.log('PASS: collapsed full same-route phase flow, article acknowledgment and return, both empty exam phases, completion release (headless fixture)');
  }finally{await browser.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});

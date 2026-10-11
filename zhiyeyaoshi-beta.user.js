@@ -1393,16 +1393,17 @@ console.info('[执业药师] Beta 1.4.0-beta.2 已加载');
         const state = pendingAutomationNotice;
         if (!state) return;
         if (state.hideAt && state.hideAt <= Date.now()) { dismissAutomationNotice(state); return; }
-        const host = document.querySelector('#tab-control') || document.body;
+        const host = getNoticeStack();
         if (!host) return;
         let notice = document.getElementById('sclpa-automation-notice');
         if (!notice) {
             notice = document.createElement('div');
             notice.id = 'sclpa-automation-notice';
             notice.setAttribute('role', 'status');
-            notice.style.cssText = 'margin:12px 0;padding:12px;background:#E8F3FF;border:1px solid #0078D4;border-radius:6px;white-space:pre-wrap;';
+
         }
         host.appendChild(notice);
+        positionFloatingNotices();
         notice.replaceChildren();
         const text = document.createElement('div');
         text.textContent = state.message;
@@ -1488,6 +1489,7 @@ console.info('[执业药师] Beta 1.4.0-beta.2 已加载');
         const status = document.getElementById('status-text');
         if (status) status.textContent = message || (isServiceActive ? '服务运行中' : '服务已暂停');
         if (isServiceActive) initializeEnhancedVideoSpeedEngine();
+        renderPanelStatus();
     }
 
     function startAllInOneMode() {
@@ -1543,6 +1545,110 @@ console.info('[执业药师] Beta 1.4.0-beta.2 已加载');
     // --- UI面板管理 (UI Panel Management) ---
     // ===================================================================================
 
+
+    function getPanelTaskLabel() {
+        const phase = isAllInOneMode && getAllInOnePhase();
+        if (phase) return phase.label;
+        const hash = window.location.hash.toLowerCase();
+        for (const [route, label] of [['/openonlineexam','公需考试'],['/onlineexam','专业考试'],['/examination','考试答题'],['/imageandtext','公需文章'],['/majorplayerpage','专业视频'],['/openplayer','公需视频'],['/publicdemand','公需课程'],['/specialized','专业课程']]) if (hash.includes(route)) return label;
+        return '等待学习页面';
+    }
+
+    function renderPanelStatus() {
+        const task = getPanelTaskLabel();
+        const mini = document.getElementById('compact-runtime-state');
+        if (mini) mini.textContent = (isServiceActive ? '运行中 · ' : '已暂停 · ') + task;
+        const summary = document.getElementById('current-task-summary');
+        if (summary) summary.textContent = (isAllInOneMode ? '全能托管 · ' : '当前页面 · ') + task;
+        const toggle = document.getElementById('compact-service-btn');
+        if (toggle) { toggle.textContent = isServiceActive ? '暂停' : '启动'; toggle.setAttribute('aria-label', isServiceActive ? '暂停服务' : '启动服务'); }
+    }
+
+    function getNoticeStack() {
+        let stack = document.getElementById('sclpa-message-stack');
+        if (!stack && document.body) { stack = document.createElement('div'); stack.id = 'sclpa-message-stack'; stack.setAttribute('aria-label','助手提醒'); document.body.append(stack); }
+        return stack;
+    }
+
+    function positionFloatingNotices() {
+        const stack = document.getElementById('sclpa-message-stack'), panel = document.getElementById('mode-switcher-panel');
+        if (!stack || !panel) return;
+        const rect = panel.getBoundingClientRect();
+        stack.style.right = rect.left >= 354 ? Math.max(12, innerWidth - rect.left + 10) + 'px' : '12px';
+        stack.style.bottom = rect.left >= 354 ? '12px' : Math.max(12, Math.min(innerHeight - rect.top + 10, innerHeight - 190)) + 'px';
+    }
+
+    function clampFloatingPanel(panel) {
+        if (!panel?.isConnected) return;
+        const rect = panel.getBoundingClientRect(), x = Math.max(8, Math.min(rect.left, innerWidth - rect.width - 8)), y = Math.max(8, Math.min(rect.top, innerHeight - rect.height - 8));
+        if (panel.style.left || panel.style.top || Math.abs(x - rect.left) > 1 || Math.abs(y - rect.top) > 1) {
+            panel.style.left = x + 'px'; panel.style.top = y + 'px'; panel.style.right = 'auto'; panel.style.bottom = 'auto';
+        }
+    }
+
+    function setPanelCollapsed(panel, collapsed, remember = true) {
+        panel.classList.toggle('collapsed', collapsed);
+        const toggle = panel.querySelector('#mode-switcher-toggle-collapse');
+        if (toggle) { toggle.textContent = collapsed ? '＋' : '－'; toggle.setAttribute('aria-label', collapsed ? '展开面板' : '折叠面板'); toggle.setAttribute('aria-expanded', String(!collapsed)); }
+        if (remember) GM_setValue('sclpa_panel_collapsed', collapsed);
+        clampFloatingPanel(panel); renderPanelStatus(); positionFloatingNotices();
+    }
+
+    function buildSafeDiagnostics() {
+        const locks = window.__sclpaRuntimeKeepAwake || {}, scheduler = window.__sclpaBackgroundScheduler || {};
+        // Explicit allowlist only: never include keys, titles, account DOM, errors, or URLs.
+        return JSON.stringify({version:window.__sclpaScriptInstance.version,service:isServiceActive?'running':'paused',panel:document.getElementById('mode-switcher-panel')?.classList.contains('collapsed')?'collapsed':'expanded',task:getPanelTaskLabel(),speed:currentPlaybackRate,retries:normalizeExamRetryLimit(GM_getValue('sclpa_exam_max_retries',3)),scheduler:{mode:scheduler.mode,pending:scheduler.pending},keepAwake:{running:Boolean(locks.running),webLock:locks.webLock,screenLock:locks.screenLock}},null,2);
+    }
+
+    function showReleaseNotes() {
+        document.getElementById('sclpa-release-dialog')?.remove();
+        const previous = document.activeElement, dialog = document.createElement('dialog'); dialog.id = 'sclpa-release-dialog'; dialog.setAttribute('aria-labelledby','sclpa-release-title');
+        const heading = document.createElement('h2'); heading.id = 'sclpa-release-title'; heading.tabIndex = -1; heading.autofocus = true; heading.textContent = 'Beta 新功能与更新';
+        const intro = document.createElement('p'); intro.textContent = '当前版本 ' + window.__sclpaScriptInstance.version + ' · 自 Beta 以来的主要改进'; dialog.append(heading,intro);
+        const notes = [
+            ['更易用的悬浮面板','学习、设置、帮助重新分组；折叠后保留运行状态和启停按钮，记住位置与折叠状态，支持恢复位置、触屏拖动和脱敏诊断。'],
+            ['后台调度与全能托管','依次处理专业视频、公需视频、公需文章与两类考试；折叠界面仍继续运行，暂停和完成后释放保活资源。后台锁不保证阻止所有浏览器冻结或系统休眠。'],
+            ['视频加载与文章倍速','修复公需视频反复返回；加载失败有限恢复并跳过，保留未完成。文章同样应用倍速，等待平台确认完成，冻结期间不补算阅读时长。'],
+            ['AI 模型与累计纠错','输入 DeepSeek Key 自动检测鉴权与可用模型，默认 deepseek-flash；错误答案累计排除，重试次数可设 0–3 次，0 次跳过重试。'],
+            ['可选本地题库','默认关闭，首次使用单独说明。按板块和测试保存，平台逐题确认才标为正确；支持层级预览、搜索、离线 ZIP、JSON/ZIP 导入和完整题目匹配。'],
+            ['提醒、资源与隐私','异常提示独立于面板显示，临时提示自动消失，桌面通知支持检测与回退。收敛媒体计时器、清理监听，题库与配置保存在本地；诊断不含账号、Key、题干或完整链接。']
+        ];
+        notes.forEach(([title,content])=>{const card=document.createElement('section');card.className='sclpa-release-card';const label=document.createElement('h3'),text=document.createElement('p');label.textContent=title;text.textContent=content;card.append(label,text);dialog.append(card);});
+        const close = document.createElement('button');close.type='button';close.textContent='我知道了';close.onclick=()=>dialog.close();dialog.append(close);
+        dialog.addEventListener('close',()=>{dialog.remove();if(previous?.isConnected)previous.focus({preventScroll:true});},{once:true});
+        dialog.addEventListener('click',event=>{if(event.target!==dialog)return;const r=dialog.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)dialog.close();});
+        const topClose=document.createElement('button');topClose.type='button';topClose.textContent='×';topClose.setAttribute('aria-label','关闭更新说明');topClose.style.cssText='float:right;padding:0 10px;background:transparent;color:#176b60;font-size:24px';topClose.onclick=()=>dialog.close();dialog.prepend(topClose);
+        document.body.append(dialog);dialog.showModal();heading.focus({preventScroll:true});dialog.scrollTop=0;
+    }
+
+    function showFeatureAnnouncement() {
+        const version = window.__sclpaScriptInstance.version;
+        if (GM_getValue('sclpa_features_seen_version','') === version || document.getElementById('sclpa-release-notice')) return;
+        const stack = getNoticeStack(); if (!stack) return;
+        const notice=document.createElement('div');notice.id='sclpa-release-notice';notice.setAttribute('role','status');
+        const title=document.createElement('strong'),text=document.createElement('span'),view=document.createElement('button'),dismiss=document.createElement('button');
+        title.textContent='助手已更新 · '+version;text.textContent='看看 Beta 的新功能和使用方式。';view.type=dismiss.type='button';view.textContent='查看新功能';dismiss.textContent='稍后';
+        view.onclick=()=>{notice.remove();showReleaseNotes();};dismiss.onclick=()=>notice.remove();notice.append(title,text,document.createElement('br'),view,dismiss);stack.append(notice);
+        GM_setValue('sclpa_features_seen_version',version);positionFloatingNotices();
+    }
+
+    function mountPanelExperience(panel) {
+        const background=panel.querySelector('#sclpa-background-settings'), bank=panel.querySelector('#sqb-record-toggle')?.closest('.panel-section');
+        if (background && bank) background.before(bank);
+        setPanelCollapsed(panel,GM_getValue('sclpa_panel_collapsed',false)===true,false);
+        const saved=GM_getValue('sclpa_panel_position',null);
+        if(saved && Number.isFinite(saved.x) && Number.isFinite(saved.y) && Math.abs(saved.x)<100000 && Math.abs(saved.y)<100000){panel.style.left=saved.x+'px';panel.style.top=saved.y+'px';panel.style.right='auto';panel.style.bottom='auto';clampFloatingPanel(panel);}
+        panel.querySelector('#compact-service-btn').onclick=()=>panel.querySelector('#service-toggle-btn').click();
+        panel.querySelector('#panel-reset-position').onclick=()=>{panel.style.left='';panel.style.top='';panel.style.right='';panel.style.bottom='';GM_setValue('sclpa_panel_position',null);positionFloatingNotices();};
+        panel.querySelector('#open-ai-helper-btn').onclick=()=>{createManualAiHelper();clampFloatingPanel(document.getElementById('ai-helper-panel'));};
+        panel.querySelector('#show-release-notes-btn').onclick=showReleaseNotes;
+        panel.querySelector('#copy-diagnostics-btn').onclick=async()=>{try{await navigator.clipboard.writeText(buildSafeDiagnostics());showAutomationNotice('已复制脱敏诊断，可粘贴到反馈中。',{autoHideMs:5000});}catch(_){showAutomationNotice('无法访问剪贴板，请检查浏览器权限后重试。');}};
+        const tabs=[...panel.querySelectorAll('.tab-btn')];tabs.forEach((tab,index)=>tab.addEventListener('keydown',event=>{let target;if(event.key==='ArrowRight')target=(index+1)%tabs.length;else if(event.key==='ArrowLeft')target=(index+tabs.length-1)%tabs.length;else if(event.key==='Home')target=0;else if(event.key==='End')target=tabs.length-1;else return;event.preventDefault();tabs[target].click();tabs[target].focus();}));
+        window.addEventListener('resize',()=>{document.querySelectorAll('#mode-switcher-panel,#ai-helper-panel').forEach(clampFloatingPanel);positionFloatingNotices();});
+        document.addEventListener('pointerdown',event=>{const active=event.target.closest?.('#mode-switcher-panel,#ai-helper-panel');if(!active)return;document.querySelectorAll('#mode-switcher-panel,#ai-helper-panel').forEach(node=>{node.style.zIndex=node===active?'2147483601':'2147483600';});},{passive:true});
+        renderPanelStatus();showFeatureAnnouncement();
+    }
+
     /**
      * Create the modern script control panel with tabs
      */
@@ -1556,691 +1662,49 @@ console.info('[执业药师] Beta 1.4.0-beta.2 已加载');
 
         try {
             GM_addStyle(`
-                /* Microsoft Fluent Design System - 微软流畅设计系统 */
-                #mode-switcher-panel {
-                    position: fixed;
-                    bottom: 20px;
-                    right: 20px;
-                    width: 400px;
-                    background: #FFFFFF;
-                    border-radius: 8px;
-                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08);
-                    z-index: 10000;
-                    overflow: hidden;
-                    font-family: 'Segoe UI Variable', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
-                    transition: all 0.2s ease;
-                    border: 1px solid rgba(0, 0, 0, 0.06);
-                }
-                
-                #mode-switcher-panel:hover {
-                    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.16), 0 4px 12px rgba(0, 0, 0, 0.1);
-                }
-                
-                #mode-switcher-panel.collapsed {
-                    width: 240px;
-                }
-                
-                /* Header - 标题栏 */
-                #mode-switcher-header {
-                    padding: 16px 20px;
-                    background: #F3F2F1;
-                    color: #323130;
-                    cursor: move;
-                    user-select: none;
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-                }
-                
-                #mode-switcher-header h3 {
-                    margin: 0;
-                    font-size: 15px;
-                    font-weight: 600;
-                    display: flex;
-                    align-items: center;
-                    gap: 8px;
-                    letter-spacing: -0.01em;
-                }
-                
-                #mode-switcher-toggle-collapse {
-                    background: transparent;
-                    border: none;
-                    color: #605E5C;
-                    font-size: 18px;
-                    cursor: pointer;
-                    padding: 4px 12px;
-                    border-radius: 4px;
-                    transition: all 0.15s ease;
-                    line-height: 1;
-                }
-                
-                #mode-switcher-toggle-collapse:hover {
-                    background: rgba(0, 0, 0, 0.05);
-                    color: #323130;
-                }
-                
-                /* Tabs - 标签页 */
-                #mode-switcher-tabs {
-                    display: flex;
-                    background: #FAFAFA;
-                    padding: 8px;
-                    gap: 4px;
-                    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-                }
-                
-                .tab-btn {
-                    flex: 1;
-                    padding: 8px 12px;
-                    background: transparent;
-                    border: none;
-                    color: #605E5C;
-                    font-size: 13px;
-                    cursor: pointer;
-                    border-radius: 4px;
-                    transition: all 0.15s ease;
-                    font-weight: 500;
-                    font-family: inherit;
-                }
-                
-                .tab-btn:hover {
-                    background: rgba(0, 0, 0, 0.04);
-                    color: #323130;
-                }
-                
-                .tab-btn.active {
-                    background: #FFFFFF;
-                    color: #0078D4;
-                    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-                    font-weight: 600;
-                }
-                
-                /* Content - 内容区域 */
-                #mode-switcher-content {
-                    padding: 20px;
-                    background: #FFFFFF;
-                    max-height: 480px;
-                    overflow-y: auto;
-                    max-height: 480px;
-                }
-                
-                #mode-switcher-content::-webkit-scrollbar {
-                    width: 8px;
-                }
-                
-                #mode-switcher-content::-webkit-scrollbar-track {
-                    background: #F3F2F1;
-                }
-                
-                #mode-switcher-content::-webkit-scrollbar-thumb {
-                    background: #C8C8C8;
-                    border-radius: 4px;
-                }
-                
-                #mode-switcher-content::-webkit-scrollbar-thumb:hover {
-                    background: #A8A8A8;
-                }
-                
-                /* Tab Content Animation */
-                .tab-content {
-                    display: none;
-                    animation: fluentFadeIn 0.2s ease;
-                }
-                
-                .tab-content.active {
-                    display: block;
-                }
-                
-                @keyframes fluentFadeIn {
-                    from {
-                        opacity: 0;
-                        transform: translateY(8px);
-                    }
-                    to {
-                        opacity: 1;
-                        transform: translateY(0);
-                    }
-                }
-                
-                /* Section Title */
-                .panel-section {
-                    margin-bottom: 24px;
-                }
-                
-                .panel-section:last-child {
-                    margin-bottom: 0;
-                }
-                
-                .section-title {
-                    font-size: 12px;
-                    color: #605E5C;
-                    margin-bottom: 12px;
-                    display: flex;
-                    align-items: center;
-                    gap: 8px;
-                    font-weight: 600;
-                    text-transform: uppercase;
-                    letter-spacing: 0.02em;
-                }
-                
-                /* Status Indicator */
-                .status-indicator {
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    gap: 12px;
-                    padding: 16px;
-                    background: #F3F2F1;
-                    border-radius: 6px;
-                    margin-bottom: 16px;
-                    border: 1px solid rgba(0, 0, 0, 0.04);
-                }
-                
-                .status-dot {
-                    width: 10px;
-                    height: 10px;
-                    border-radius: 50%;
-                    animation: fluentPulse 2s infinite;
-                }
-                
-                .status-dot.active {
-                    background: #107C10;
-                    box-shadow: 0 0 8px rgba(16, 124, 16, 0.4);
-                }
-                
-                .status-dot.paused {
-                    background: #D13438;
-                    box-shadow: 0 0 8px rgba(209, 52, 56, 0.4);
-                    animation: none;
-                }
-                
-                @keyframes fluentPulse {
-                    0%, 100% {
-                        transform: scale(1);
-                        opacity: 1;
-                    }
-                    50% {
-                        transform: scale(1.15);
-                        opacity: 0.75;
-                    }
-                }
-                
-                #status-text {
-                    font-size: 14px;
-                    font-weight: 500;
-                    color: #323130;
-                }
-                
-                /* Primary Button */
-                .panel-btn {
-                    padding: 10px 20px;
-                    font-size: 14px;
-                    color: #FFFFFF;
-                    border: none;
-                    border-radius: 4px;
-                    cursor: pointer;
-                    transition: all 0.15s ease;
-                    width: 100%;
-                    box-sizing: border-box;
-                    font-weight: 600;
-                    font-family: inherit;
-                    letter-spacing: 0.01em;
-                }
-                
-                .panel-btn:hover {
-                    transform: translateY(-1px);
-                }
-                
-                .panel-btn:active {
-                    transform: translateY(0);
-                }
-                
-                .service-btn-active {
-                    background: #107C10;
-                }
-                
-                .service-btn-active:hover {
-                    background: #0B5C0B;
-                }
-                
-                .service-btn-paused {
-                    background: #D13438;
-                }
-                
-                .service-btn-paused:hover {
-                    background: #A80000;
-                }
-                
-                #api-key-save-btn.panel-btn:hover {
-                    background: #106EBE !important;
-                }
-                
-                /* Navigation Button */
-                .nav-btn {
-                    padding: 12px 16px;
-                    font-size: 13px;
-                    color: #323130;
-                    background: #FFFFFF;
-                    border: 1px solid #E1DFDD;
-                    border-radius: 4px;
-                    cursor: pointer;
-                    transition: all 0.15s ease;
-                    width: 100%;
-                    margin-bottom: 8px;
-                    font-weight: 500;
-                    display: flex;
-                    align-items: center;
-                    gap: 12px;
-                    font-family: inherit;
-                }
-                
-                .nav-btn:last-child {
-                    margin-bottom: 0;
-                }
-                
-                .nav-btn:hover {
-                    background: #F3F2F1;
-                    border-color: #0078D4;
-                    transform: translateX(4px);
-                }
-                
-                .nav-btn-icon {
-                    font-size: 16px;
-                    width: 24px;
-                    text-align: center;
-                }
-                
-                .nav-btn-text {
-                    flex: 1;
-                    text-align: left;
-                }
-                
-                .nav-btn-arrow {
-                    opacity: 0;
-                    transition: all 0.15s ease;
-                    color: #0078D4;
-                    font-weight: 600;
-                }
-                
-                .nav-btn:hover .nav-btn-arrow {
-                    opacity: 1;
-                }
-                
-                /* Navigation Grid */
-                .nav-grid {
-                    display: grid;
-                    grid-template-columns: 1fr 1fr;
-                    gap: 8px;
-                }
-                
-                .nav-grid .nav-btn {
-                    margin-bottom: 0;
-                }
-                
-                /* Setting Row */
-                .setting-row {
-                    margin-bottom: 20px;
-                }
-                
-                .setting-row:last-child {
-                    margin-bottom: 0;
-                }
-                
-                .setting-row label {
-                    display: block;
-                    margin-bottom: 8px;
-                    font-size: 13px;
-                    color: #323130;
-                    font-weight: 600;
-                }
-                
-                /* Speed Slider */
-                .speed-slider-container {
-                    display: flex;
-                    align-items: center;
-                    gap: 16px;
-                    background: #F3F2F1;
-                    padding: 12px 16px;
-                    border-radius: 4px;
-                    border: 1px solid rgba(0, 0, 0, 0.04);
-                }
-                
-                .speed-slider-container input[type="range"] {
-                    flex: 1;
-                    height: 4px;
-                    border-radius: 2px;
-                    background: #E1DFDD;
-                    outline: none;
-                    -webkit-appearance: none;
-                }
-                
-                .speed-slider-container input[type="range"]::-webkit-slider-thumb {
-                    -webkit-appearance: none;
-                    width: 18px;
-                    height: 18px;
-                    border-radius: 50%;
-                    background: #0078D4;
-                    cursor: pointer;
-                    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
-                    transition: all 0.15s ease;
-                }
-                
-                .speed-slider-container input[type="range"]::-webkit-slider-thumb:hover {
-                    transform: scale(1.1);
-                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
-                }
-                
-                #speed-display {
-                    font-weight: 700;
-                    font-size: 15px;
-                    color: #0078D4;
-                    min-width: 48px;
-                    text-align: center;
-                    letter-spacing: -0.01em;
-                }
-                
-                /* API Key Input */
-                .api-key-input {
-                    width: 100%;
-                    padding: 10px 12px;
-                    border: 1px solid #E1DFDD;
-                    border-radius: 4px;
-                    box-sizing: border-box;
-                    font-size: 13px;
-                    transition: all 0.15s ease;
-                    font-family: inherit;
-                    color: #323130;
-                }
-                
-                .api-key-input:focus {
-                    outline: none;
-                    border-color: #0078D4;
-                    box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.2);
-                }
-                
-                .api-key-status {
-                    margin-top: 8px;
-                    font-size: 12px;
-                    padding: 8px 12px;
-                    border-radius: 4px;
-                    display: flex;
-                    align-items: center;
-                    gap: 6px;
-                    font-weight: 500;
-                }
-                
-                .api-key-status.configured {
-                    background: #DFF6DD;
-                    color: #0B5C0B;
-                    border: 1px solid #A7F0A3;
-                }
-                
-                .api-key-status.not-configured {
-                    background: #FFF4CE;
-                    color: #8A6914;
-                    border: 1px solid #FCEFC4;
-                }
-                
-                /* Divider */
-                .panel-divider {
-                    width: 100%;
-                    height: 1px;
-                    background: #E1DFDD;
-                    margin: 24px 0;
-                }
-                
-                /* Tutorial Content */
-                .tutorial-content {
-                    background: #FAFAFA;
-                    padding: 16px;
-                    border-radius: 4px;
-                    border: 1px solid rgba(0, 0, 0, 0.04);
-                }
-                
-                .tutorial-section {
-                    margin-bottom: 20px;
-                }
-                
-                .tutorial-section:last-child {
-                    margin-bottom: 0;
-                }
-                
-                .tutorial-section h4 {
-                    font-size: 13px;
-                    color: #0078D4;
-                    margin: 0 0 10px 0;
-                    display: flex;
-                    align-items: center;
-                    gap: 8px;
-                    font-weight: 600;
-                }
-                
-                .tutorial-section ul {
-                    margin: 0;
-                    padding-left: 20px;
-                    color: #323130;
-                    font-size: 13px;
-                    line-height: 1.7;
-                }
-                
-                .tutorial-section li {
-                    margin-bottom: 6px;
-                }
-                
-                .tutorial-section li::marker {
-                    color: #0078D4;
-                }
-                
-                .tutorial-warning {
-                    background: #FFF4CE;
-                    border-left: 3px solid #FFB900;
-                    padding: 12px;
-                    border-radius: 4px;
-                    margin-top: 16px;
-                }
-                
-                .tutorial-warning strong {
-                    color: #8A6914;
-                }
-                
-                .tutorial-link {
-                    color: #0078D4;
-                    text-decoration: none;
-                    font-weight: 500;
-                }
-                
-                .tutorial-link:hover {
-                    text-decoration: underline;
-                }
-                
-                /* Collapsed State */
-                #mode-switcher-panel.collapsed #mode-switcher-tabs,
-                #mode-switcher-panel.collapsed #mode-switcher-content {
-                    display: none;
-                }
-            `);
+#mode-switcher-panel{--ink:#203347;--muted:#65788a;--line:#dbe3e9;--accent:#176b60;position:fixed;right:16px;bottom:16px;width:360px;max-width:calc(100vw - 24px);max-height:calc(100dvh - 24px);display:flex;flex-direction:column;background:#f4f7f8;color:var(--ink);border:1px solid #cedae0;border-radius:16px;box-shadow:0 12px 42px #16304726;z-index:2147483600;font:13px/1.55 'Segoe UI','Microsoft YaHei',sans-serif;overflow:hidden;box-sizing:border-box}
+#mode-switcher-panel *{box-sizing:border-box}#mode-switcher-panel button,#mode-switcher-panel input,#mode-switcher-panel select{font:inherit}#mode-switcher-panel button{cursor:pointer}#mode-switcher-panel button:focus-visible,#mode-switcher-panel input:focus-visible,#mode-switcher-panel select:focus-visible{outline:2px solid #218477;outline-offset:2px}
+#mode-switcher-header{display:flex;align-items:center;gap:10px;padding:14px 16px;background:#e7efed;cursor:move;touch-action:none;flex:none;border-bottom:1px solid var(--line)}#mode-switcher-header .sclpa-brand{flex:1;min-width:0}#mode-switcher-header h3{margin:0;font-size:16px;letter-spacing:.02em}#mode-switcher-header small{color:#58736d;font-size:11px}#mode-switcher-header button{border:0;border-radius:8px;background:#ffffffc9;color:var(--ink);min-width:30px;height:30px;cursor:pointer}#mode-switcher-header button:hover{background:#fff}
+#mode-switcher-panel #compact-runtime-state{display:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11px;color:#32665c}#mode-switcher-panel #compact-service-btn{display:none}#mode-switcher-tabs{display:flex;gap:4px;padding:7px;background:#fff;border-bottom:1px solid var(--line);flex:none}#mode-switcher-panel .tab-btn{flex:1;border:0;border-radius:8px;padding:8px;background:transparent;color:var(--muted);font-weight:600}#mode-switcher-panel .tab-btn.active{color:var(--accent);background:#e8f3ef}
+#mode-switcher-content{overflow:auto;overscroll-behavior:contain;min-height:0;padding:14px;scrollbar-width:thin}#mode-switcher-panel .tab-content{display:none}#mode-switcher-panel .tab-content.active{display:block}#mode-switcher-panel .panel-section{background:#fff;border:1px solid var(--line);border-radius:11px;padding:13px;margin:0 0 12px}#mode-switcher-panel .section-title{font-size:13px;font-weight:700;margin:0 0 10px}#mode-switcher-panel .sclpa-hint{color:var(--muted);font-size:11px;margin:7px 0 0}#mode-switcher-panel .status-indicator{display:flex;align-items:center;gap:8px;margin-bottom:12px;font-weight:600}#mode-switcher-panel .status-dot{width:8px;height:8px;border-radius:50%;background:#8796a0;flex:none}#mode-switcher-panel .status-dot.active{background:#1d8b62}#mode-switcher-panel .status-dot.paused{background:#c7832a}#mode-switcher-panel .panel-btn{display:block;width:100%;border:0;border-radius:8px;padding:10px 12px;font-weight:600;background:var(--accent);color:#fff}#mode-switcher-panel .service-btn-active{background:#e9efed;color:#31564d}#mode-switcher-panel .service-btn-paused{background:var(--accent);color:#fff}
+#mode-switcher-panel .nav-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}#mode-switcher-panel .nav-btn{width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px;text-align:left;border:1px solid var(--line);background:#fff;color:var(--ink);border-radius:9px;padding:11px 12px;min-height:42px}#mode-switcher-panel .nav-btn:hover{border-color:#619b8e;background:#f4faf7}#mode-switcher-panel .nav-btn-arrow{color:#78968e}#mode-switcher-panel #nav-all-in-one-btn{background:#176b60;color:#fff;border:0;font-weight:700}#mode-switcher-panel #nav-all-in-one-btn .nav-btn-arrow{color:#d3eee3}#mode-switcher-panel .setting-row{margin:10px 0}#mode-switcher-panel .setting-row label{display:block;font-weight:600;margin:0 0 7px}#mode-switcher-panel .speed-slider-container{display:flex;gap:10px;align-items:center}#mode-switcher-panel #speed-slider{flex:1;min-width:0;accent-color:var(--accent)}#mode-switcher-panel #speed-display{font-weight:700;min-width:40px;color:var(--accent)}#mode-switcher-panel .api-key-input{width:100%;min-width:0;border:1px solid #c9d6dc;border-radius:7px;background:#fff;color:var(--ink);padding:9px;box-sizing:border-box}#mode-switcher-panel .api-key-status{padding:9px;margin-top:8px;font-size:11px;border-radius:7px;overflow-wrap:anywhere}#mode-switcher-panel .api-key-status.configured{background:#e7f3e9;color:#276138}#mode-switcher-panel .api-key-status.not-configured{background:#f3f1e8;color:#796a3a}#mode-switcher-panel .sqb-meta{font-size:11px;color:var(--muted)}#mode-switcher-panel .sqb-actions button,#mode-switcher-panel .sclpa-small-btn{border:1px solid var(--line);background:#fff;color:var(--accent);border-radius:7px;padding:7px 10px}
+#mode-switcher-panel .sclpa-guide{border:1px solid var(--line);border-radius:10px;background:#fff;margin-bottom:9px;padding:0 12px}#mode-switcher-panel .sclpa-guide summary{font-weight:600;padding:12px 0;cursor:pointer;color:var(--ink)}#mode-switcher-panel .sclpa-guide p,#mode-switcher-panel .sclpa-guide li{color:#506476;margin:7px 0}#mode-switcher-panel .sclpa-guide ol,#mode-switcher-panel .sclpa-guide ul{padding-left:20px;margin:0 0 12px}#mode-switcher-panel a{color:var(--accent)}#mode-switcher-panel .sclpa-help-actions{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}#mode-switcher-panel .sclpa-footer{padding:9px 14px;background:#edf2f3;border-top:1px solid var(--line);font-size:10px;color:var(--muted);flex:none}
+#mode-switcher-panel.collapsed{width:300px}#mode-switcher-panel.collapsed #mode-switcher-tabs,#mode-switcher-panel.collapsed #mode-switcher-content,#mode-switcher-panel.collapsed .sclpa-footer,#mode-switcher-panel.collapsed .sclpa-brand small{display:none}#mode-switcher-panel.collapsed #compact-runtime-state{display:block}#mode-switcher-panel.collapsed #compact-service-btn{display:block;width:auto;font-size:11px}#mode-switcher-panel.collapsed #mode-switcher-header h3{font-size:13px}#mode-switcher-panel.collapsed #mode-switcher-header{border:0;padding:10px 12px}
+#sclpa-message-stack{position:fixed;right:12px;bottom:12px;z-index:2147483645;width:min(330px,calc(100vw - 24px));display:flex;flex-direction:column;gap:8px;max-height:min(65vh,480px);overflow:auto;pointer-events:none;font:13px/1.6 'Segoe UI','Microsoft YaHei',sans-serif;color:#203347}#sclpa-message-stack>div{pointer-events:auto;background:#fff;border:1px solid #c6d8d1;border-left:4px solid #176b60;border-radius:11px;box-shadow:0 6px 24px #122d4026;padding:12px;white-space:pre-wrap;overflow-wrap:anywhere}#sclpa-message-stack button{font:inherit;border:1px solid #cbdad5;background:#edf5f1;color:#176b60;border-radius:7px;padding:6px 10px;cursor:pointer;margin:8px 6px 0 0}#sclpa-message-stack strong{display:block;font-size:14px}
+#sclpa-release-dialog{width:min(660px,calc(100vw - 28px));max-height:85dvh;overflow:auto;padding:24px;background:#f7faf8;border:1px solid #cbdcd3;border-radius:15px;box-shadow:0 24px 80px #0d2c3a4d;color:#203347;font:14px/1.7 'Segoe UI','Microsoft YaHei',sans-serif}#sclpa-release-dialog::backdrop{background:#18303980}#sclpa-release-dialog h2{margin:0 0 4px;font-size:22px}#sclpa-release-dialog h3{margin:0 0 6px;font-size:14px;color:#176b60}#sclpa-release-dialog .sclpa-release-card{background:#fff;border:1px solid #dde8e1;border-radius:10px;padding:14px;margin:12px 0}#sclpa-release-dialog p{margin:5px 0}#sclpa-release-dialog button{border:0;border-radius:8px;background:#176b60;color:white;padding:9px 18px;font:inherit;cursor:pointer}
+#ai-helper-panel{max-height:calc(100dvh - 24px);overflow:auto}#ai-helper-header{touch-action:none}@media(max-width:480px){#mode-switcher-panel{right:12px;bottom:12px}#mode-switcher-content{padding:10px}#mode-switcher-panel .panel-section{padding:11px}#mode-switcher-panel.collapsed{width:280px}}
+@media(prefers-reduced-motion:reduce){#mode-switcher-panel *,#sclpa-message-stack *{animation:none!important;transition:none!important}}
+`);
 
             const panel = document.createElement('div');
             panel.id = 'mode-switcher-panel';
             panel.innerHTML = `
-                <div id="mode-switcher-header">
-                    <h3>控制面板</h3>
-                    <button id="mode-switcher-toggle-collapse">－</button>
-                </div>
-                <div id="mode-switcher-tabs">
-                    <button class="tab-btn active" data-tab="control">控制</button>
-                    <button class="tab-btn" data-tab="settings">设置</button>
-                    <button class="tab-btn" data-tab="tutorial">教程</button>
-                </div>
-                <div id="mode-switcher-content">
-                    <!-- 控制面板 -->
-                    <div class="tab-content active" id="tab-control">
-                        <div class="status-indicator">
-                            <div class="status-dot" id="status-dot"></div>
-                            <span id="status-text">服务运行中</span>
-                        </div>
-                        <button id="service-toggle-btn" class="panel-btn"></button>
-                        
-                        <div class="panel-divider"></div>
-                        
-                        <div class="panel-section">
-                            <div class="section-title">快速导航</div>
-                            <div style="margin-bottom: 10px;">
-                                <button id="nav-all-in-one-btn" class="nav-btn" style="background: #E8F3FF; border-color: #0078D4;">
-                                    <span class="nav-btn-text">全能托管（推荐）</span>
-                                    <span class="nav-btn-arrow">→</span>
-                                </button>
-                            </div>
-                            <div class="nav-grid">
-                                <button id="nav-specialized-btn" class="nav-btn">
-                                    <span class="nav-btn-text">专业课程</span>
-                                    <span class="nav-btn-arrow">→</span>
-                                </button>
-                                <button id="nav-public-video-btn" class="nav-btn">
-                                    <span class="nav-btn-text">公需课-视频</span>
-                                    <span class="nav-btn-arrow">→</span>
-                                </button>
-                                <button id="nav-public-article-btn" class="nav-btn">
-                                    <span class="nav-btn-text">公需课-文章</span>
-                                    <span class="nav-btn-arrow">→</span>
-                                </button>
-                                <button id="nav-specialized-exam-btn" class="nav-btn">
-                                    <span class="nav-btn-text">专业课-考试</span>
-                                    <span class="nav-btn-arrow">→</span>
-                                </button>
-                            </div>
-                            <div style="margin-top: 10px;">
-                                <button id="nav-public-exam-btn" class="nav-btn">
-                                    <span class="nav-btn-text">公需课-考试</span>
-                                    <span class="nav-btn-arrow">→</span>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- 设置面板 -->
-                    <div class="tab-content" id="tab-settings">
-                        <div class="panel-section">
-                            <div class="section-title">播放设置</div>
-                            <div class="setting-row">
-                                <label for="speed-slider">学习倍速：视频 / 文章 (1-16x)</label>
-                                <div class="speed-slider-container">
-                                    <input type="range" id="speed-slider" min="1" max="16" step="0.5" value="${currentPlaybackRate}">
-                                    <span id="speed-display">${currentPlaybackRate}x</span>
-                                </div>
-                            </div>
-                        </div>
+<div id="mode-switcher-header"><div class="sclpa-brand"><h3>执业药师助手</h3><small>Beta · 继续教育学习工具</small><span id="compact-runtime-state" role="status"></span></div><button type="button" id="compact-service-btn" aria-label="暂停服务">暂停</button><button type="button" id="panel-reset-position" aria-label="恢复面板位置" title="恢复右下角位置">⌖</button><button type="button" id="mode-switcher-toggle-collapse" aria-label="折叠面板" aria-expanded="true" aria-controls="mode-switcher-content">－</button></div>
+<div id="mode-switcher-tabs" role="tablist" aria-label="助手功能"><button type="button" class="tab-btn active" data-tab="control" role="tab" aria-selected="true" aria-controls="tab-control">学习</button><button type="button" class="tab-btn" data-tab="settings" tabindex="-1" role="tab" aria-selected="false" aria-controls="tab-settings">设置</button><button type="button" class="tab-btn" data-tab="tutorial" tabindex="-1" role="tab" aria-selected="false" aria-controls="tab-tutorial">帮助</button></div>
+<div id="mode-switcher-content">
+<div class="tab-content active" id="tab-control" role="tabpanel">
+ <div class="panel-section"><div class="status-indicator"><span class="status-dot" id="status-dot"></span><span id="status-text" role="status">服务运行中</span></div><button type="button" id="service-toggle-btn" class="panel-btn"></button><p class="sclpa-hint" id="current-task-summary">等待学习页面</p></div>
+ <div class="panel-section"><div class="section-title">按顺序处理全部任务</div><button type="button" id="nav-all-in-one-btn" class="nav-btn"><span class="nav-btn-text">全能托管</span><span class="nav-btn-arrow">→</span></button><p class="sclpa-hint">专业视频 → 公需视频 → 公需文章 → 两类考试。完成后自动停止，请核对平台记录。</p></div>
+ <div class="panel-section"><div class="section-title">只处理一个板块</div><div class="nav-grid"><button type="button" id="nav-specialized-btn" class="nav-btn"><span class="nav-btn-text">专业视频</span><span class="nav-btn-arrow">→</span></button><button type="button" id="nav-public-video-btn" class="nav-btn"><span class="nav-btn-text">公需视频</span><span class="nav-btn-arrow">→</span></button><button type="button" id="nav-public-article-btn" class="nav-btn"><span class="nav-btn-text">公需文章</span><span class="nav-btn-arrow">→</span></button><button type="button" id="nav-specialized-exam-btn" class="nav-btn"><span class="nav-btn-text">专业考试</span><span class="nav-btn-arrow">→</span></button><button type="button" id="nav-public-exam-btn" class="nav-btn"><span class="nav-btn-text">公需考试</span><span class="nav-btn-arrow">→</span></button><button type="button" id="open-ai-helper-btn" class="nav-btn"><span class="nav-btn-text">手动提问</span><span class="nav-btn-arrow">↗</span></button></div><p class="sclpa-hint">手动切换学习板块会结束全能托管；服务启停单独控制。</p></div>
+</div>
+<div class="tab-content" id="tab-settings" role="tabpanel">
+ <div class="panel-section"><div class="section-title">学习与考试</div><div class="setting-row"><label for="speed-slider">学习倍速 · 视频与文章</label><div class="speed-slider-container"><input type="range" id="speed-slider" min="1" max="16" step="0.5" value="${currentPlaybackRate}"><span id="speed-display">${currentPlaybackRate}x</span></div><p class="sclpa-hint">首次默认 1 倍，可调 1–16 倍；以平台保存的进度为准。</p></div><div class="setting-row"><label for="exam-retry-input">考试失败后的重试次数</label><input type="number" id="exam-retry-input" class="api-key-input" min="0" max="3" step="1" value="${normalizeExamRetryLimit(GM_getValue('sclpa_exam_max_retries', 3))}"><p class="sclpa-hint">0 次跳过重试，最多 3 次；纠错会携带本轮累计错误答案。</p></div></div>
+ <div class="panel-section"><div class="section-title">AI 答题</div><div class="setting-row"><label for="api-key-input">DeepSeek API Key</label><input type="password" id="api-key-input" class="api-key-input" placeholder="请输入您的 API Key" autocomplete="off" spellcheck="false" value=""><div id="api-key-status" role="status" aria-live="polite" class="api-key-status not-configured">未配置 API Key</div></div><button type="button" id="api-key-save-btn" class="panel-btn">保存并检测</button><div class="setting-row"><label for="ai-model-select">答题模型</label><select id="ai-model-select" class="api-key-input" disabled></select><p class="sclpa-hint">默认 deepseek-flash；输入 Key 后自动获取模型，选择后立即用于后续答题。</p></div></div>
+ <div class="panel-section" id="sclpa-background-settings"><div class="section-title">后台与提醒</div><div id="runtime-keep-awake-status" class="sclpa-hint" role="status">尝试保活</div><p class="sclpa-hint">运行时尝试保活，暂停即释放。面板折叠不会暂停任务；系统休眠仍可能中断。</p><button type="button" id="test-background-notification-btn" class="sclpa-small-btn" style="margin-top:10px">测试桌面通知</button><p class="sclpa-hint">异常页面提醒不受折叠影响。桌面横幅需浏览器或脚本管理器及系统允许通知。</p></div>
+</div>
+<div class="tab-content" id="tab-tutorial" role="tabpanel">
+ <div class="sclpa-help-actions"><button type="button" id="show-release-notes-btn" class="sclpa-small-btn">查看新功能</button><button type="button" id="copy-diagnostics-btn" class="sclpa-small-btn">复制脱敏诊断</button></div>
+ <details class="sclpa-guide" open><summary>第一次使用 · 三步开始</summary><ol><li>登录学习平台，选择年度并进入学习页面，确认助手显示“服务运行中”。</li><li>在“设置”调整学习倍速；需要 AI 答题时填入自己的 Key，检测后保存。</li><li>回到“学习”，选择“全能托管”或单个板块。可随时暂停，折叠面板也会继续运行。</li></ol></details>
+ <details class="sclpa-guide"><summary>全能托管与手动切换</summary><p>按专业视频、公需视频、公需文章、专业考试、公需考试依次处理。当前板块确认无待处理任务后再前进；结束会停止服务。手动选择板块会结束全能托管，不会替你开启暂停的服务。</p><p>遇到登录失效、验证码或持续异常时，根据页面提醒处理，最后核对平台记录。</p></details>
+ <details class="sclpa-guide"><summary>倍速、后台与折叠</summary><p>视频和公需文章共用学习倍速。首次默认 1 倍，范围 1–16 倍。文章等待平台确认完成后才返回。</p><p>折叠只收起界面，学习、切页、答题、提醒和保活继续工作。服务运行时尝试申请后台锁和屏幕唤醒锁，暂停会释放；浏览器冻结或系统休眠无法保证被完全阻止，恢复后不会补算冻结期间的阅读时长。</p></details>
+ <details class="sclpa-guide"><summary>AI Key、模型与错题重试</summary><p>Key 仅保存在本地脚本管理器中。输入后自动检测鉴权和模型列表，点击“保存并检测”应用；默认 deepseek-flash，可在下拉框更换。模型列表检测成功不代表余额充足。</p><p>未命中题库的题会发送给 DeepSeek。失败重试可设 0–3 次，累计已知错误答案用于排除；AI 答案仍需核对。<a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener noreferrer">获取自己的 API Key</a></p></details>
+ <details class="sclpa-guide"><summary>本地题库 · 记录、预览与导入</summary><p>自动保存默认关闭，首次使用会单独说明。开启后按板块和测试归档；只有平台逐题确认的答案标为正确，未确认显示“未得出”。</p><p>设置中可搜索、预览、导出 ZIP，解压后打开 index.html 离线查看；同格式 JSON/ZIP 可导入为预设题库。匹配完整题干和选项，不要求目录对应；冲突或未确认的答案不会自动使用。关闭记录不影响已有题库检索。</p></details>
+ <details class="sclpa-guide"><summary>加载卡住、异常与通知</summary><p>视频持续加载失败时有限重试并跳过，保留未完成状态；反复失败会提醒或暂停。请稍后检查被跳过的课程。</p><p>在设置中测试桌面通知。页面临时回执会自动消失，异常提醒可点“我知道了”；折叠面板后仍可见。真实桌面横幅受浏览器、管理器和系统设置影响。</p></details>
+ <details class="sclpa-guide"><summary>面板位置与隐私</summary><p>可拖动标题栏，触屏也支持；折叠状态和位置会记住，⌖ 按钮恢复右下角，缩小窗口时会把面板留在屏幕内。</p><p>“复制脱敏诊断”只包含脚本版本、功能状态与资源计数，不含账号、Key、题干或完整页面链接。提交截图时仍请自行遮住个人信息。题库导出含题目正文，请自行保管。</p></details>
+ <details class="sclpa-guide"><summary>项目与反馈</summary><p><a href="https://github.com/Cooanyh/zhiyeyaoshi" target="_blank" rel="noopener noreferrer">项目主页</a> · <a href="https://github.com/Cooanyh/zhiyeyaoshi/issues" target="_blank" rel="noopener noreferrer">反馈问题</a></p><p>正式版与 Beta 二选一启用。反馈可附脱敏诊断、复现步骤和遮住个人信息的截图，请勿发送密码、Key 或登录凭据。</p></details>
+</div></div><div class="sclpa-footer">折叠仍运行 · 暂停会释放保活 · 进度以平台为准</div>
+`;
 
-                        <div class="panel-divider"></div>
-
-                        <div class="panel-section">
-                            <div class="section-title">运行保活</div>
-                            <div id="runtime-keep-awake-status" style="font-size:12px;color:#605E5C;">尝试保活</div>
-                        </div>
-                        <div class="panel-divider"></div>
-                        <div class="panel-section">
-                            <div class="section-title">后台异常通知</div>
-                            <button id="test-background-notification-btn" class="panel-btn">测试桌面通知</button>
-                            <div style="font-size:12px;color:#605E5C;margin-top:6px;">后台异常时发送桌面提醒；同类异常五分钟内不重复提醒。请允许浏览器或脚本管理器发送系统通知。</div>
-                        </div>
-                        <div class="panel-divider"></div>
-                        <div class="panel-section">
-                            <div class="section-title">考试设置</div>
-                            <div class="setting-row">
-                                <label for="exam-retry-input">考试失败自动重试次数 (0-3)</label>
-                                <input type="number" id="exam-retry-input" class="api-key-input" min="0" max="3" step="1" value="${normalizeExamRetryLimit(GM_getValue('sclpa_exam_max_retries', 3))}">
-                                <div style="font-size: 12px; color: #605E5C; margin-top: 6px;">考试未通过时自动提取错题回传 AI 修正并重新作答；设为 0 则跳过错题重试，继续其他考试；默认 3 次，最多 3 次。</div>
-                            </div>
-                        </div>
-
-                        <div class="panel-divider"></div>
-
-                        <div class="panel-section">
-                            <div class="section-title">AI 设置</div>
-                            <div class="setting-row">
-                                <label for="api-key-input">DeepSeek API Key</label>
-                                <input type="password" id="api-key-input" class="api-key-input" placeholder="请输入您的 API Key" autocomplete="off" spellcheck="false" value="">
-                                <div id="api-key-status" role="status" aria-live="polite" class="api-key-status not-configured">
-                                    ⚠️ 未配置 API Key
-                                </div>
-                            </div>
-                            <button id="api-key-save-btn" class="panel-btn" style="background: #0078D4; margin-top: 12px;">
-                                保存并检测
-                            </button>
-                            <div class="setting-row" style="margin-top: 12px;">
-                                <label for="ai-model-select">答题模型</label>
-                                <select id="ai-model-select" class="api-key-input" style="width:100%;max-width:100%;" disabled></select>
-                                <div style="font-size:12px;color:#666;margin-top:6px;">默认 deepseek-flash；检测成功后可选择官方返回的可用模型。</div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 教程面板 -->
-                    <div class="tab-content" id="tab-tutorial">
-                        <div class="tutorial-content">
-                            <div class="tutorial-section">
-                                <h4>快速开始</h4>
-                                <ul>
-                                    <li>安装脚本后，屏幕右下角会出现控制面板</li>
-                                    <li>点击相应按钮可快速跳转到不同学习模块</li>
-                                    <li>开启服务后，脚本将自动完成刷课任务</li>
-                                    <li>视频默认16倍速静音播放</li>
-                                </ul>
-                            </div>
-                            
-                            <div class="tutorial-section">
-                                <h4>AI 助手</h4>
-                                <ul>
-                                    <li>在使用AI答题功能前，需先设置 DeepSeek API Key</li>
-                                    <li>在"设置"标签页中输入您的 API Key 并保存</li>
-                                    <li>获取 API Key：<a href="https://platform.deepseek.com/api_keys" target="_blank" class="tutorial-link">点击此处</a></li>
-                                    <li>AI会自动处理考试题目并选择答案</li>
-                                </ul>
-                            </div>
-                            
-                            <div class="tutorial-section">
-                                <h4>功能说明</h4>
-                                <ul>
-                                    <li><strong>专业课程：</strong>自动播放视频课程，支持多章节切换</li>
-                                    <li><strong>公需课-视频：</strong>自动播放视频，支持静音倍速</li>
-                                    <li><strong>公需课-文章：</strong>自动计时，标记已读状态</li>
-                                    <li><strong>考试：</strong>AI自动答题（需配置API Key）</li>
-                                </ul>
-                            </div>
-
-                            <div class="tutorial-section">
-                                <h4>视频倍速技术</h4>
-                                <ul>
-                                    <li><strong>增强倍速引擎：</strong>采用多重防护机制，确保倍速稳定生效</li>
-                                    <li><strong>自动检测：</strong>支持主文档、iframe和Shadow DOM中的视频</li>
-                                    <li><strong>实时监控：</strong>每秒检查并修正倍速设置</li>
-                                    <li><strong>防护机制：</strong>阻止网页重置playbackRate属性</li>
-                                    <li><strong>智能重试：</strong>自动适应视频加载和切换场景</li>
-                                </ul>
-                            </div>
-                            
-                            <div class="tutorial-warning">
-                                <strong>注意事项：</strong>
-                                <ul style="margin-top: 8px; margin-bottom: 0;">
-                                    <li>请保持刷课页面始终处于前台</li>
-                                    <li>不要折叠控制面板</li>
-                                    <li>AI答题不能保证100%正确率</li>
-                                    <li>考试未通过时脚本会自动提取错题回传AI修正并重新作答（可在“设置”调整重试次数）</li>
-                                </ul>
-                            </div>
-                            
-                            <div class="tutorial-section">
-                                <h4>获取帮助</h4>
-                                <ul>
-                                    <li>GitHub：<a href="https://github.com/Cooanyh/zhiyeyaoshi" target="_blank" class="tutorial-link">访问项目主页</a></li>
-                                    <li>问题反馈：在 脚本猫 或 GitHub 提交 Issue</li>
-                                </ul>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
-            
             if (document.body) {
                 document.body.appendChild(panel);
                 if (pendingAutomationNotice) renderAutomationNotice();
@@ -2254,17 +1718,17 @@ console.info('[执业药师] Beta 1.4.0-beta.2 已加载');
             questionBank.mount(panel);
 
             // Tab switching functionality
-            const tabBtns = document.querySelectorAll('.tab-btn');
-            const tabContents = document.querySelectorAll('.tab-content');
+            const tabBtns = panel.querySelectorAll('.tab-btn');
+            const tabContents = panel.querySelectorAll('.tab-content');
             
             tabBtns.forEach(btn => {
                 btn.onclick = () => {
                     const targetTab = btn.dataset.tab;
                     
-                    tabBtns.forEach(b => b.classList.remove('active'));
+                    tabBtns.forEach(b => { b.classList.remove('active'); b.setAttribute('aria-selected','false'); b.tabIndex=-1; });
                     tabContents.forEach(c => c.classList.remove('active'));
                     
-                    btn.classList.add('active');
+                    btn.classList.add('active'); btn.setAttribute('aria-selected','true'); btn.tabIndex=0;
                     document.getElementById(`tab-${targetTab}`).classList.add('active');
                 };
             });
@@ -2356,8 +1820,7 @@ console.info('[执业药师] Beta 1.4.0-beta.2 已加载');
 
             if (collapseBtn) {
                 collapseBtn.onclick = () => {
-                    if (panel) panel.classList.toggle('collapsed');
-                    if (collapseBtn && panel) collapseBtn.innerText = panel.classList.contains('collapsed') ? '＋' : '－';
+                    setPanelCollapsed(panel, !panel.classList.contains('collapsed'));
                 };
             }
 
@@ -2411,6 +1874,7 @@ console.info('[执业药师] Beta 1.4.0-beta.2 已加载');
             if (panel && document.getElementById('mode-switcher-header')) {
                 makeDraggable(panel, document.getElementById('mode-switcher-header'));
             }
+            mountPanelExperience(panel);
             debugLog('[Script] Modern Mode Switcher Panel creation attempted and event listeners attached.');
 
         } catch (e) {
@@ -2740,7 +2204,7 @@ console.info('[执业药师] Beta 1.4.0-beta.2 已加载');
                         const answer = await askAiForAnswer(question);
                         resultDiv.textContent = String(answer);
                     } catch (error) {
-                        resultDiv.innerHTML = `<span style="color: #dc3545;">❌ 请求失败：${error}</span>`;
+                        resultDiv.textContent = '请求失败：' + String(error);
                     } finally {
                         submitBtn.disabled = false;
                         submitBtn.innerHTML = '<span>🚀</span><span>向 AI 提问</span>';
@@ -2764,36 +2228,30 @@ console.info('[执业药师] Beta 1.4.0-beta.2 已加载');
      * @param {HTMLElement} header - The header element that acts as the drag handle.
      */
     function makeDraggable(panel, header) {
-        let isDragging = false, offsetX, offsetY;
-        header.addEventListener('mousedown', (e) => {
-            if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT') return;
-            isDragging = true;
-            if (panel.style.bottom || panel.style.right) {
-                const rect = panel.getBoundingClientRect();
-                panel.style.top = `${rect.top}px`;
-                panel.style.left = `${rect.left}px`;
-                panel.style.bottom = '';
-                panel.style.right = '';
-            }
-            offsetX = e.clientX - parseFloat(panel.style.left);
-            offsetY = e.clientY - parseFloat(panel.style.top);
-            header.style.cursor = 'grabbing';
-            document.body.style.userSelect = 'none';
+        let pointer = null, offsetX = 0, offsetY = 0;
+        header.addEventListener('pointerdown', event => {
+            if (event.button !== 0 || event.isPrimary === false || event.target.closest('button,input,select,a,summary')) return;
+            const rect = panel.getBoundingClientRect();
+            pointer = event.pointerId; offsetX = event.clientX - rect.left; offsetY = event.clientY - rect.top;
+            panel.style.left = rect.left + 'px'; panel.style.top = rect.top + 'px'; panel.style.right = 'auto'; panel.style.bottom = 'auto';
+            header.style.cursor = 'grabbing'; panel.style.userSelect = 'none';
+            try { header.setPointerCapture(pointer); } catch (_) {}
+            event.preventDefault();
         });
-        document.addEventListener('mousemove', (e) => {
-            if (!isDragging) return;
-            const newX = e.clientX - offsetX;
-            const newY = e.clientY - offsetY;
-            panel.style.left = `${newX}px`;
-            panel.style.top = `${newY}px`;
+        header.addEventListener('pointermove', event => {
+            if (pointer !== event.pointerId) return;
+            panel.style.left = (event.clientX - offsetX) + 'px'; panel.style.top = (event.clientY - offsetY) + 'px';
+            clampFloatingPanel(panel); positionFloatingNotices();
         });
-        document.addEventListener('mouseup', () => {
-            if (isDragging) {
-                isDragging = false;
-                header.style.cursor = 'move';
-                document.body.style.userSelect = '';
-            }
-        });
+        const end = event => {
+            if (pointer !== event.pointerId) return;
+            const old = pointer; pointer = null; header.style.cursor = 'move'; panel.style.userSelect = '';
+            try { if (header.hasPointerCapture(old)) header.releasePointerCapture(old); } catch (_) {}
+            if (panel.id === 'mode-switcher-panel') { const rect = panel.getBoundingClientRect(); GM_setValue('sclpa_panel_position', {x:rect.left,y:rect.top}); }
+        };
+        header.addEventListener('pointerup', end);
+        header.addEventListener('pointercancel', end);
+        header.addEventListener('lostpointercapture', end);
     }
 
     // ===================================================================================
@@ -4204,6 +3662,7 @@ console.info('[执业药师] Beta 1.4.0-beta.2 已加载');
      */
     function mainLoop() {
         runtimeKeepAwake.sync();
+        renderPanelStatus();
         debugLog('[Script] Main loop running...');
         const currentHash = window.location.hash; // Get current hash at the start of the loop
 

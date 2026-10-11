@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         四川执业药师-金航联平台
 // @namespace    http://tampermonkey.net/
-// @version      1.5.2
-// @description  针对 sc.mtnet.com.cn（四川执业药师-金航联平台） 网站设计的自动化刷课脚本，实现自动导航、静音、后台播放以及功能更强大的AI自动考试助手。请注意倍速不可用！！！自该版本(1.5.1)起更新了协议
+// @version      1.5.3
+// @description  四川执业药师金航联平台课程导航、静音与 AI 考试辅助；改进日志隐私与密钥输入处理。该平台视频倍速目前不可用。
 // @author       Coren
 // @match        *://sc.mtnet.com.cn/*
 // @grant        GM_addStyle
@@ -21,7 +21,7 @@
     // --- 脚本配置 (Script Configuration) ---
     // ===================================================================================
     const CONFIG = {
-        VIDEO_PLAYBACK_RATE: 16.0, // 默认视频播放倍速
+        VIDEO_PLAYBACK_RATE: 6.0, // 默认视频播放倍速
         API_PROMPT: "你是一个乐于助人的问题回答助手。聚焦于执业药师相关的内容，请根据用户提出的问题，提供准确、清晰的解答。注意回答时仅仅包括答案，不允许其他额外任何解释，输出为一行一道题目的答案，答案只能是题目序号:字母选项，不能包含文字内容。单选输出示例：1.A。多选输出示例：1.ABC。",
     };
 
@@ -50,11 +50,11 @@
 
     function clickElement(element, description) {
         if (element && typeof element.click === 'function') {
-            console.log(`[脚本操作] 正在点击: ${description}`, element);
+            console.log(`[脚本操作] 正在点击: ${description}`);
             element.click();
             return true;
         } else {
-            console.warn(`[脚本警告] 尝试点击一个不存在或不可点击的元素: ${description}`, element);
+            console.warn(`[脚本警告] 尝试点击一个不存在或不可点击的元素: ${description}`);
             return false;
         }
     }
@@ -113,7 +113,7 @@
                 <div class="panel-divider"></div>
                  <div class="setting-row">
                     <label>DeepSeek API Key</label>
-                    <input type="password" id="api-key-input" placeholder="在此输入你的API Key" value="${deepseekApiKey}">
+                    <input type="password" id="api-key-input" placeholder="在此输入你的API Key" autocomplete="off" spellcheck="false" value="">
                 </div>
                 <div class="panel-divider"></div>
                 <div class="setting-row">
@@ -133,6 +133,7 @@
         const speedSlider = document.getElementById('speed-slider');
         const speedDisplay = document.getElementById('speed-display');
         const apiKeyInput = document.getElementById('api-key-input');
+        if(deepseekApiKey)apiKeyInput.placeholder='API Key 已配置；输入新 Key 可替换';
         const navSpecializedBtn = document.getElementById('nav-specialized-video-btn');
         const navPublicBtn = document.getElementById('nav-public-video-btn');
         const navSpecializedExamBtn = document.getElementById('nav-specialized-exam-btn');
@@ -154,7 +155,7 @@
         };
         speedSlider.addEventListener('input', () => { speedDisplay.textContent = `x${speedSlider.value}`; });
         speedSlider.addEventListener('change', () => { currentPlaybackRate = parseFloat(speedSlider.value); GM_setValue('mtnet_playback_rate', currentPlaybackRate); });
-        apiKeyInput.addEventListener('change', () => { deepseekApiKey = apiKeyInput.value.trim(); GM_setValue('deepseek_api_key', deepseekApiKey); });
+        apiKeyInput.addEventListener('change', () => { const key=apiKeyInput.value.trim();deepseekApiKey=key;GM_setValue('deepseek_api_key',key);apiKeyInput.value='';apiKeyInput.placeholder=key?'API Key 已配置；输入新 Key 可替换':'在此输入你的API Key'; });
         navSpecializedBtn.onclick = () => { GM_setValue('mtnet_target_task', 'specialized_video'); window.location.href = 'http://sc.mtnet.com.cn/user/courses'; };
         navPublicBtn.onclick = () => { GM_setValue('mtnet_target_task', 'public_video'); window.location.href = 'http://sc.mtnet.com.cn/user/courses'; };
         navSpecializedExamBtn.onclick = () => { GM_setValue('mtnet_target_task', 'specialized_exam'); window.location.href = 'http://sc.mtnet.com.cn/user/courses'; };
@@ -418,7 +419,7 @@
             fullText += '\n';
             questionCounter++;
         });
-        console.log('[AI考试助手] v3.4 修正后提取的题目内容:\n', fullText);
+        // Do not log question contents.
         return fullText;
     }
 
@@ -446,14 +447,14 @@
             const match = line.match(/(\d+)\s*\.\s*([A-Z]+)/i);
             if (match) answerMap.set(parseInt(match[1], 10), match[2].toUpperCase());
         });
-        console.log('[AI考试助手] v3.4 修正后解析的答案 Map:', answerMap);
+        // Do not log answer contents.
         const allQuestions = document.querySelectorAll('div[id^="q"]');
         for (let i = 0; i < allQuestions.length; i++) {
             const questionEl = allQuestions[i];
             const questionNum = i + 1;
             if (answerMap.has(questionNum)) {
                 const answerChars = answerMap.get(questionNum);
-                console.log(`[AI考试助手] 正在为第 ${questionNum} 个问题 (容器ID: ${questionEl.id}) 填写答案: ${answerChars}`);
+                // Fill answers without logging values or element identifiers.
                 for (const optionChar of answerChars.split('')) {
                     const labels = questionEl.querySelectorAll('.el-radio, .el-checkbox');
                     let optionClicked = false;
@@ -524,7 +525,7 @@
         if (!isServiceActive) return;
         if (chapterCheckInterval) clearInterval(chapterCheckInterval);
         const url = window.location.href;
-        console.log(`[脚本路由] 当前URL: ${url}`);
+        console.log('[脚本路由] 正在检查当前页面类型');
         if (url.includes('/user/courses')) { handleCourseListPage(); }
         else if (url.includes('/video/')) { handleVideoPage(); }
         else if (url.includes('/examination/')) { handleExamPage(); }
@@ -532,7 +533,7 @@
     }
 
     window.addEventListener('load', () => {
-        console.log(`[脚本加载] 新版MTNet刷课脚本 v3.5.0 (功能扩展版) 已启动。`);
+        console.log(`[脚本加载] 新版MTNet刷课脚本 v1.5.3 已启动。`);
         createControlPanel();
         initializeAntiPauseFixes();
         if (isServiceActive) {

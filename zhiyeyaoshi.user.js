@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         四川省执业药师继续教育
 // @namespace    http://tampermonkey.net/
-// @version      1.3.7
-// @description  【1.3.7-beta.1 | H5 倍速修复】四川职业药师继续教育；稳定应用标准 HTML5 视频倍速；新增错题自动纠正(通过率提高)
+// @version      1.3.8
+// @description  【1.3.8 | 隐私与安全改进】四川执业药师继续教育：HTML5 视频倍速、课程导航及 AI 答题纠错辅助；首次默认 6 倍速。
 // @author       Coren
 // @match        https://www.sclpa.cn/*
 // @match        https://zyys.ihehang.com/*
@@ -27,8 +27,8 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
     // --- 脚本配置 (Script Configuration) ---
     // ===================================================================================
 
-    // Get user-defined playback speed from storage, default to 16x if not set
-    let currentPlaybackRate = GM_getValue('sclpa_playback_rate', 1.0);
+    // Get user-defined playback speed from storage, default to 6x if not set
+    let currentPlaybackRate = GM_getValue('sclpa_playback_rate', 6.0);
     // Get user-defined AI API Key from storage
     let aiApiKey = GM_getValue('sclpa_deepseek_api_key', '请在此处填入您自己的 DeepSeek API Key');
 
@@ -1334,7 +1334,7 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
                                     <li>安装脚本后，屏幕右下角会出现控制面板</li>
                                     <li>点击相应按钮可快速跳转到不同学习模块</li>
                                     <li>开启服务后，脚本将自动完成刷课任务</li>
-                                    <li>视频默认16倍速静音播放</li>
+                                    <li>视频首次默认6倍速静音播放</li>
                                 </ul>
                             </div>
                             
@@ -1486,7 +1486,10 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
             // Load current API key
             const currentKey = GM_getValue('sclpa_deepseek_api_key', '');
             if (apiKeyInput) {
-                apiKeyInput.value = currentKey;
+                apiKeyInput.value = '';
+                apiKeyInput.autocomplete = 'off';
+                apiKeyInput.spellcheck = false;
+                apiKeyInput.placeholder = currentKey ? 'API Key 已配置；输入新 Key 可替换' : '请输入您的 API Key';
             }
             if (apiKeyStatus && currentKey) {
                 apiKeyStatus.className = 'api-key-status configured';
@@ -1499,6 +1502,8 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
                     if (newKey) {
                         GM_setValue('sclpa_deepseek_api_key', newKey);
                         CONFIG.AI_API_SETTINGS.API_KEY = newKey;
+                        apiKeyInput.value = '';
+                        apiKeyInput.placeholder = 'API Key 已配置；输入新 Key 可替换';
                         if (apiKeyStatus) {
                             apiKeyStatus.className = 'api-key-status configured';
                             apiKeyStatus.innerHTML = '✅ API Key 已保存！';
@@ -1901,9 +1906,9 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
                     
                     try {
                         const answer = await askAiForAnswer(question);
-                        resultDiv.innerHTML = `<div style="color: #28a745; margin-bottom: 8px;">✅ 已获取答案</div><div style="color: #333;">${answer}</div>`;
+                        resultDiv.textContent = '✅ 已获取答案\n' + String(answer);
                     } catch (error) {
-                        resultDiv.innerHTML = `<span style="color: #dc3545;">❌ 请求失败：${error}</span>`;
+                        resultDiv.textContent = '❌ 请求失败：' + String(error);
                     } finally {
                         submitBtn.disabled = false;
                         submitBtn.innerHTML = '<span>🚀</span><span>向 AI 提问</span>';
@@ -2655,7 +2660,7 @@ console.log(`[Script Init] Attempting to load Sichuan Licensed Pharmacist Contin
      * 允许在不重新加载页面的情况下动态调整倍速
      */
     function applyCurrentVideoSpeed() {
-        const targetRate = GM_getValue('sclpa_playback_rate', 1.0);
+        const targetRate = GM_getValue('sclpa_playback_rate', 6.0);
 
         CONFIG.VIDEO_PLAYBACK_RATE = targetRate;
         currentPlaybackRate = targetRate;

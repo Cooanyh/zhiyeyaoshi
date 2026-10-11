@@ -31,8 +31,8 @@ const {chromium}=require(process.env.PLAYWRIGHT_MODULE_PATH||'playwright');
   await save.click();await respond({data:[]});assert.match(await status.innerText(),/没有返回/);
   await save.click();await respond({data:[{id:'deepseek-v4-pro'}]});assert.equal(await select.inputValue(),'deepseek-v4-pro');assert.match(await status.innerText(),/未提供 deepseek-flash/);
   console.log('PASS: stale response/abort isolation, authentication/permission/quota/rate/server errors, malformed/empty lists, timeout and fallback model');
-  await input.fill('');assert.equal(await select.isDisabled(),true);await page.waitForTimeout(900);assert.match(await status.innerText(),/请输入/);
-  await save.click();assert.match(await status.innerText(),/有效/);
+  await input.fill('synthetic-clear-draft');await input.fill('');assert.equal(await select.isDisabled(),true);await page.waitForTimeout(900);assert.match(await status.innerText(),/已配置/);
+  await save.click();await respond(list);assert.match(await status.innerText(),/鉴权通过/);assert.equal(await input.inputValue(),'');
   await input.fill('synthetic-cleanup');await save.click();await page.evaluate(()=>window.dispatchEvent(new Event('pagehide')));assert.equal(await page.evaluate(()=>dsCalls.at(-1).aborted),true);
   assert.deepEqual(errors,[]);console.log('PASS: blank input, narrow settings, no page errors and request cleanup on pagehide');
  }finally{await browser.close();}

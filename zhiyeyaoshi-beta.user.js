@@ -38,8 +38,8 @@ console.info('[执业药师] Beta 1.4.0-beta.2 已加载');
     // --- 脚本配置 (Script Configuration) ---
     // ===================================================================================
 
-    // Get user-defined playback speed from storage, default to 16x if not set
-    let currentPlaybackRate = GM_getValue('sclpa_playback_rate', 1.0);
+    // Get user-defined playback speed from storage, default to 6x if not set
+    let currentPlaybackRate = GM_getValue('sclpa_playback_rate', 6.0);
     // Get user-defined AI API Key from storage
     let aiApiKey = GM_getValue('sclpa_deepseek_api_key', '请在此处填入您自己的 DeepSeek API Key');
     let aiModel = GM_getValue('sclpa_deepseek_model', 'deepseek-flash');
@@ -1616,10 +1616,10 @@ console.info('[执业药师] Beta 1.4.0-beta.2 已加载');
         const notes = [
             ['更易用的悬浮面板','学习、设置、帮助重新分组；折叠后保留运行状态和启停按钮，记住位置与折叠状态，支持恢复位置、触屏拖动和脱敏诊断。'],
             ['后台调度与全能托管','依次处理专业视频、公需视频、公需文章与两类考试；折叠界面仍继续运行，暂停和完成后释放保活资源。后台锁不保证阻止所有浏览器冻结或系统休眠。'],
-            ['视频加载与文章倍速','修复公需视频反复返回；加载失败有限恢复并跳过，保留未完成。文章同样应用倍速，等待平台确认完成，冻结期间不补算阅读时长。'],
+            ['视频加载与文章倍速','修复公需视频反复返回；加载失败有限恢复并跳过，保留未完成。视频与文章首次默认 6 倍，保留已有倍率设置；等待平台确认完成，冻结期间不补算阅读时长。'],
             ['AI 模型与累计纠错','输入 DeepSeek Key 自动检测鉴权与可用模型，默认 deepseek-flash；错误答案累计排除，重试次数可设 0–3 次，0 次跳过重试。'],
             ['可选本地题库','默认关闭，首次使用单独说明。按板块和测试保存，平台逐题确认才标为正确；支持层级预览、搜索、离线 ZIP、JSON/ZIP 导入和完整题目匹配。'],
-            ['提醒、资源与隐私','异常提示独立于面板显示，临时提示自动消失，桌面通知支持检测与回退。收敛媒体计时器、清理监听，题库与配置保存在本地；诊断不含账号、Key、题干或完整链接。']
+            ['提醒、资源与隐私','异常提示独立于面板显示，临时提示自动消失，桌面通知支持检测与回退。收敛媒体计时器、清理监听，题库与配置保存在本地；已保存的 Key 不回填输入框，保存后清空输入。诊断不含账号、Key、题干或完整链接。']
         ];
         if (backgroundSetup) body.innerHTML = backgroundSetupGuide();
         else notes.forEach(([title,content])=>{const card=document.createElement('section');card.className='sclpa-release-card';const label=document.createElement('h3'),text=document.createElement('p');label.textContent=title;text.textContent=content;card.append(label,text);body.append(card);});
@@ -1702,7 +1702,7 @@ console.info('[执业药师] Beta 1.4.0-beta.2 已加载');
  <div class="panel-section"><div class="section-title">只处理一个板块</div><div class="nav-grid"><button type="button" id="nav-specialized-btn" class="nav-btn"><span class="nav-btn-text">专业视频</span><span class="nav-btn-arrow">→</span></button><button type="button" id="nav-public-video-btn" class="nav-btn"><span class="nav-btn-text">公需视频</span><span class="nav-btn-arrow">→</span></button><button type="button" id="nav-public-article-btn" class="nav-btn"><span class="nav-btn-text">公需文章</span><span class="nav-btn-arrow">→</span></button><button type="button" id="nav-specialized-exam-btn" class="nav-btn"><span class="nav-btn-text">专业考试</span><span class="nav-btn-arrow">→</span></button><button type="button" id="nav-public-exam-btn" class="nav-btn"><span class="nav-btn-text">公需考试</span><span class="nav-btn-arrow">→</span></button><button type="button" id="open-ai-helper-btn" class="nav-btn"><span class="nav-btn-text">手动提问</span><span class="nav-btn-arrow">↗</span></button></div><p class="sclpa-hint">手动切换学习板块会结束全能托管；服务启停单独控制。</p></div>
 </div>
 <div class="tab-content" id="tab-settings" role="tabpanel">
- <div class="panel-section"><div class="section-title">学习与考试</div><div class="setting-row"><label for="speed-slider">学习倍速 · 视频与文章</label><div class="speed-slider-container"><input type="range" id="speed-slider" min="1" max="16" step="0.5" value="${currentPlaybackRate}"><span id="speed-display">${currentPlaybackRate}x</span></div><p class="sclpa-hint">首次默认 1 倍，可调 1–16 倍；以平台保存的进度为准。</p></div><div class="setting-row"><label for="exam-retry-input">考试失败后的重试次数</label><input type="number" id="exam-retry-input" class="api-key-input" min="0" max="3" step="1" value="${normalizeExamRetryLimit(GM_getValue('sclpa_exam_max_retries', 3))}"><p class="sclpa-hint">0 次跳过重试，最多 3 次；纠错会携带本轮累计错误答案。</p></div></div>
+ <div class="panel-section"><div class="section-title">学习与考试</div><div class="setting-row"><label for="speed-slider">学习倍速 · 视频与文章</label><div class="speed-slider-container"><input type="range" id="speed-slider" min="1" max="16" step="0.5" value="${currentPlaybackRate}"><span id="speed-display">${currentPlaybackRate}x</span></div><p class="sclpa-hint">首次默认 6 倍，可调 1–16 倍；以平台保存的进度为准。</p></div><div class="setting-row"><label for="exam-retry-input">考试失败后的重试次数</label><input type="number" id="exam-retry-input" class="api-key-input" min="0" max="3" step="1" value="${normalizeExamRetryLimit(GM_getValue('sclpa_exam_max_retries', 3))}"><p class="sclpa-hint">0 次跳过重试，最多 3 次；纠错会携带本轮累计错误答案。</p></div></div>
  <div class="panel-section"><div class="section-title">AI 答题</div><div class="setting-row"><label for="api-key-input">DeepSeek API Key</label><input type="password" id="api-key-input" class="api-key-input" placeholder="请输入您的 API Key" autocomplete="off" spellcheck="false" value=""><div id="api-key-status" role="status" aria-live="polite" class="api-key-status not-configured">未配置 API Key</div></div><button type="button" id="api-key-save-btn" class="panel-btn">保存并检测</button><div class="setting-row"><label for="ai-model-select">答题模型</label><select id="ai-model-select" class="api-key-input" disabled></select><p class="sclpa-hint">默认 deepseek-flash；输入 Key 后自动获取模型，选择后立即用于后续答题。</p></div></div>
  <div class="panel-section" id="sclpa-background-settings"><div class="section-title">后台与提醒</div><div id="runtime-keep-awake-status" class="sclpa-hint" role="status">尝试保活</div><p class="sclpa-hint">运行时尝试保活，暂停即释放。面板折叠不会暂停任务；系统休眠仍可能中断。</p><button type="button" id="test-background-notification-btn" class="sclpa-small-btn" style="margin-top:10px">测试桌面通知</button><p class="sclpa-hint">异常页面提醒不受折叠影响。桌面横幅需浏览器或脚本管理器及系统允许通知。</p></div>
 </div>
@@ -1711,11 +1711,11 @@ console.info('[执业药师] Beta 1.4.0-beta.2 已加载');
  <details class="sclpa-guide" open><summary>第一次使用 · 三步开始</summary><ol><li>登录学习平台，选择年度并进入学习页面，确认助手显示“服务运行中”。</li><li>在“设置”调整学习倍速；需要 AI 答题时填入自己的 Key，检测后保存。</li><li>回到“学习”，选择“全能托管”或单个板块。可随时暂停，折叠面板也会继续运行。</li></ol></details>
  <details class="sclpa-guide"><summary>全能托管与手动切换</summary><p>按专业视频、公需视频、公需文章、专业考试、公需考试依次处理。当前板块确认无待处理任务后再前进；结束会停止服务。手动选择板块会结束全能托管，不会替你开启暂停的服务。</p><p>遇到登录失效、验证码或持续异常时，根据页面提醒处理，最后核对平台记录。</p></details>
  <details class="sclpa-guide" id="background-setup-guide"><summary>后台使用前：防冻结设置</summary>${backgroundSetupGuide()}</details>
- <details class="sclpa-guide"><summary>倍速、后台与折叠</summary><p>视频和公需文章共用学习倍速。首次默认 1 倍，范围 1–16 倍。文章等待平台确认完成后才返回。</p><p>折叠只收起界面，学习、切页、答题、提醒和保活继续工作。服务运行时尝试申请后台锁和屏幕唤醒锁，暂停会释放；浏览器冻结或系统休眠无法保证被完全阻止，恢复后不会补算冻结期间的阅读时长。</p></details>
+ <details class="sclpa-guide"><summary>倍速、后台与折叠</summary><p>视频和公需文章共用学习倍速。首次默认 6 倍，范围 1–16 倍。文章等待平台确认完成后才返回。</p><p>折叠只收起界面，学习、切页、答题、提醒和保活继续工作。服务运行时尝试申请后台锁和屏幕唤醒锁，暂停会释放；浏览器冻结或系统休眠无法保证被完全阻止，恢复后不会补算冻结期间的阅读时长。</p></details>
  <details class="sclpa-guide"><summary>AI Key、模型与错题重试</summary><p>Key 仅保存在本地脚本管理器中。输入后自动检测鉴权和模型列表，点击“保存并检测”应用；默认 deepseek-flash，可在下拉框更换。模型列表检测成功不代表余额充足。</p><p>未命中题库的题会发送给 DeepSeek。失败重试可设 0–3 次，累计已知错误答案用于排除；AI 答案仍需核对。<a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener noreferrer">获取自己的 API Key</a></p></details>
  <details class="sclpa-guide"><summary>本地题库 · 记录、预览与导入</summary><p>自动保存默认关闭，首次使用会单独说明。开启后按板块和测试归档；只有平台逐题确认的答案标为正确，未确认显示“未得出”。</p><p>设置中可搜索、预览、导出 ZIP，解压后打开 index.html 离线查看；同格式 JSON/ZIP 可导入为预设题库。匹配完整题干和选项，不要求目录对应；冲突或未确认的答案不会自动使用。关闭记录不影响已有题库检索。</p></details>
  <details class="sclpa-guide"><summary>加载卡住、异常与通知</summary><p>视频持续加载失败时有限重试并跳过，保留未完成状态；反复失败会提醒或暂停。请稍后检查被跳过的课程。</p><p>在设置中测试桌面通知。页面临时回执会自动消失，异常提醒可点“我知道了”；折叠面板后仍可见。真实桌面横幅受浏览器、管理器和系统设置影响。</p></details>
- <details class="sclpa-guide"><summary>面板位置与隐私</summary><p>可拖动标题栏，触屏也支持；折叠状态和位置会记住，⌖ 按钮恢复右下角，缩小窗口时会把面板留在屏幕内。</p><p>“复制脱敏诊断”只包含脚本版本、功能状态与资源计数，不含账号、Key、题干或完整页面链接。提交截图时仍请自行遮住个人信息。题库导出含题目正文，请自行保管。</p></details>
+ <details class="sclpa-guide"><summary>面板位置与隐私</summary><p>可拖动标题栏，触屏也支持；折叠状态和位置会记住，“恢复位置”按钮恢复右下角，缩小窗口时会把面板留在屏幕内。</p><p>“复制脱敏诊断”只包含脚本版本、功能状态与资源计数，不含账号、Key、题干或完整页面链接。提交截图时仍请自行遮住个人信息。题库导出含题目正文，请自行保管。</p></details>
  <details class="sclpa-guide"><summary>项目与反馈</summary><p><a href="https://github.com/Cooanyh/zhiyeyaoshi" target="_blank" rel="noopener noreferrer">项目主页</a> · <a href="https://github.com/Cooanyh/zhiyeyaoshi/issues" target="_blank" rel="noopener noreferrer">反馈问题</a></p><p>正式版与 Beta 二选一启用。反馈可附脱敏诊断、复现步骤和遮住个人信息的截图，请勿发送密码、Key 或登录凭据。</p></details>
 </div></div><div class="sclpa-footer">折叠仍运行 · 暂停会释放保活 · 进度以平台为准</div>
 `;
@@ -2290,10 +2290,10 @@ console.info('[执业药师] Beta 1.4.0-beta.2 已加载');
         const setStatus=(message,ok=false)=>{status.className='api-key-status '+(ok?'configured':'not-configured');status.textContent=message;};
         function renderModels(ids,selected){select.replaceChildren();ids.forEach(id=>{const option=document.createElement('option');option.value=id;option.textContent=id+(id==='deepseek-flash'?'（默认）':'');select.append(option);});select.value=selected;select.disabled=!ids.length;}
         function invalidate(){generation++;if(debounce!==null){scriptClearTimeout(debounce);debounce=null;}if(watchdog!==null){scriptClearTimeout(watchdog);watchdog=null;}const old=request;request=null;try{old?.abort?.();}catch(_){}return generation;}
-        function applyModel(){if(input.value.trim()===savedKey()&&models.includes(select.value)){aiModel=select.value;GM_setValue('sclpa_deepseek_model',aiModel);}}
+        function applyModel(){if(candidateKey()===savedKey()&&models.includes(select.value)){aiModel=select.value;GM_setValue('sclpa_deepseek_model',aiModel);}}
         function check(key,epoch){
             let settled=false;
-            const current=()=>!settled&&epoch===generation&&input.isConnected&&input.value.trim()===key;
+            const current=()=>!settled&&epoch===generation&&input.isConnected&&candidateKey()===key;
             function finish(message,ok=false){if(!current())return false;settled=true;if(watchdog!==null){scriptClearTimeout(watchdog);watchdog=null;}request=null;setStatus(message,ok);return true;}
             setStatus('正在检测 API Key 并获取可用模型…');
             watchdog=scriptSetTimeout(()=>{const old=request;if(finish('检测超时，请检查网络后点击“保存并检测”重试。')){try{old?.abort?.();}catch(_){}}},15500);
@@ -2320,20 +2320,23 @@ console.info('[执业药师] Beta 1.4.0-beta.2 已加载');
             }catch(_){finish('无法发起模型检测，请检查脚本管理器的网络访问权限。');}
         }
         function schedule(immediate=false){
-            const epoch=invalidate(),key=input.value.trim();models=[];detectedKey='';renderModels([], '');
+            const epoch=invalidate(),key=candidateKey();models=[];detectedKey='';renderModels([], '');
+            if(!immediate&&!input.value.trim()){setStatus(savedKey()?'API Key 已配置；输入新 Key 可替换，或点击“保存并检测”。':'请输入 API Key；输入后将自动检测。');return;}
             if(!key){setStatus('请输入 API Key；输入后将自动检测。');return;}
             if(key.length>512||/[\r\n]/.test(key)){setStatus('API Key 格式无效，请检查输入。');return;}
             setStatus('待检测；输入的 Key 仅发送至 DeepSeek 官方接口。');
             if(immediate)check(key,epoch);else debounce=scriptSetTimeout(()=>{debounce=null;check(key,epoch);},800);
         }
-        input.value=savedKey();renderModels([aiModel],aiModel);select.disabled=true;
-        setStatus(input.value?'API Key 已配置；编辑后自动检测，也可点击“保存并检测”。':'请输入 API Key；输入后将自动检测。');
+        function candidateKey(){return input.value.trim() || savedKey();}
+        input.value='';input.placeholder=savedKey()?'API Key 已配置；输入新 Key 可替换':'请输入您的 API Key';renderModels([aiModel],aiModel);select.disabled=true;
+        setStatus(savedKey()?'API Key 已配置；编辑后自动检测，也可点击“保存并检测”。':'请输入 API Key；输入后将自动检测。');
         input.oninput=()=>schedule();
-        select.onchange=()=>{if(detectedKey!==input.value.trim()||!models.includes(select.value))return;applyModel();setStatus(input.value.trim()===savedKey()?`已选择 ${select.value}，立即用于后续答题。`:`已选择 ${select.value}，请点击“保存并检测”应用。`,true);};
+        select.onchange=()=>{if(detectedKey!==candidateKey()||!models.includes(select.value))return;applyModel();setStatus(candidateKey()===savedKey()?`已选择 ${select.value}，立即用于后续答题。`:`已选择 ${select.value}，请点击“保存并检测”应用。`,true);};
         save.onclick=()=>{
-            const key=input.value.trim();if(!key||key.length>512||/[\r\n]/.test(key)){setStatus('请输入有效的 API Key。');return;}
+            const key=candidateKey();if(!key||key.length>512||/[\r\n]/.test(key)){setStatus('请输入有效的 API Key。');return;}
             const changed=key!==savedKey();
             GM_setValue('sclpa_deepseek_api_key',key);CONFIG.AI_API_SETTINGS.API_KEY=key;aiApiKey=key;
+            input.value='';input.placeholder='API Key 已配置；输入新 Key 可替换';
             if(changed){aiModel='deepseek-flash';GM_setValue('sclpa_deepseek_model',aiModel);}
             const submit=document.getElementById('ai-helper-submit-btn');if(submit)submit.disabled=false;
             const warning=document.getElementById('ai-key-warning');if(warning)warning.style.display='none';
@@ -3252,7 +3255,7 @@ console.info('[执业药师] Beta 1.4.0-beta.2 已加载');
      * 允许在不重新加载页面的情况下动态调整倍速
      */
     function applyCurrentVideoSpeed() {
-        const targetRate = GM_getValue('sclpa_playback_rate', 1.0);
+        const targetRate = GM_getValue('sclpa_playback_rate', 6.0);
 
         CONFIG.VIDEO_PLAYBACK_RATE = targetRate;
         currentPlaybackRate = targetRate;
@@ -3476,7 +3479,7 @@ console.info('[执业药师] Beta 1.4.0-beta.2 已加载');
                 }
                 const active = GM_getValue('sclpa_service_active', true) && component?.countdown === record.id &&
                     /\/(?:imageandtext|articleplayerpage)(?:[/?]|$)/i.test(location.hash);
-                const requested = Number(GM_getValue('sclpa_playback_rate', 1));
+                const requested = Number(GM_getValue('sclpa_playback_rate', 6));
                 const rate = active && Number.isFinite(requested) ? Math.min(16, Math.max(1, requested)) : 1;
                 if (record.lastRate !== rate) record.carry = 0;
                 record.lastRate = rate;

@@ -1600,11 +1600,19 @@ console.info('[执业药师] Beta 1.4.0-beta.2 已加载');
         return JSON.stringify({version:window.__sclpaScriptInstance.version,service:isServiceActive?'running':'paused',panel:document.getElementById('mode-switcher-panel')?.classList.contains('collapsed')?'collapsed':'expanded',task:getPanelTaskLabel(),speed:currentPlaybackRate,retries:normalizeExamRetryLimit(GM_getValue('sclpa_exam_max_retries',3)),scheduler:{mode:scheduler.mode,pending:scheduler.pending},keepAwake:{running:Boolean(locks.running),webLock:locks.webLock,screenLock:locks.screenLock}},null,2);
     }
 
-    function showReleaseNotes() {
+    function backgroundSetupGuide() {
+        return '<p>后台学习前，请先把实际学习站点加入浏览器的始终保持活动列表。脚本的后台锁不能保证阻止冻结；页面被冻结后，视频、文章计时、切课与答题都可能暂停。</p>' +
+            '<section class="sclpa-release-card"><h3>1. Edge：关闭本站的睡眠与节能限制</h3><p>设置 → 系统和性能 → 性能 → 始终保持这些站点处于活动状态 → 添加站点。旧版名称可能为“从不将这些站点置于睡眠状态”。</p><p>添加学习站点：<code>https://zyys.ihehang.com</code>。若其他学习页使用不同域名，也需添加对应站点。</p><p><a href="https://support.microsoft.com/en-us/edge/learn-about-performance-features-in-microsoft-edge" target="_blank" rel="noopener noreferrer">Edge 官方设置说明</a></p></section>' +
+            '<section class="sclpa-release-card"><h3>2. Chrome：添加性能设置例外</h3><p>设置 → 性能 → 始终保持这些网站处于活动状态 → 添加 <code>https://zyys.ihehang.com</code>。</p><p>其他浏览器请查找标签页休眠、内存节省或节能设置，将学习站点加入例外。脚本无法替你修改这些设置。</p><p><a href="https://support.google.com/chrome/answer/12929150?hl=zh-Hans" target="_blank" rel="noopener noreferrer">Chrome 官方设置说明</a></p></section>' +
+            '<section class="sclpa-release-card"><h3>3. 切到后台前检查</h3><p>电脑保持唤醒，避免系统睡眠或合盖休眠；保留学习页与浏览器开启。确认服务正在运行，先观察平台进度正常增加，再切到后台。</p><p>这些设置能减少自动冻结，但无法保证所有情况下持续运行。出现冻结提醒时返回学习页，检查播放与平台进度；冻结期间不会补算文章阅读时长。以后可在“帮助 → 后台使用前：防冻结设置”重看本指引。</p></section>';
+    }
+
+    function showReleaseNotes(options = {}) {
+        const backgroundSetup = options.backgroundSetup === true;
         document.getElementById('sclpa-release-dialog')?.remove();
         const previous = document.activeElement, dialog = document.createElement('dialog'); dialog.id = 'sclpa-release-dialog'; dialog.setAttribute('aria-labelledby','sclpa-release-title');
-        const heading = document.createElement('h2'); heading.id = 'sclpa-release-title'; heading.tabIndex = -1; heading.autofocus = true; heading.textContent = 'Beta 新功能与更新';
-        const intro = document.createElement('p'); intro.textContent = '当前版本 ' + window.__sclpaScriptInstance.version + ' · 自 Beta 以来的主要改进'; const header=document.createElement('header');header.className='sclpa-release-header';header.append(heading,intro);const body=document.createElement('div');body.className='sclpa-release-body';dialog.append(header,body);
+        const heading = document.createElement('h2'); heading.id = 'sclpa-release-title'; heading.tabIndex = -1; heading.autofocus = true; heading.textContent = backgroundSetup ? '后台学习前，请先完成防冻结设置' : 'Beta 新功能与更新';
+        const intro = document.createElement('p'); intro.textContent = backgroundSetup ? '首次使用提醒 · 请阅读后点击“我知道了”' : '当前版本 ' + window.__sclpaScriptInstance.version + ' · 自 Beta 以来的主要改进'; const header=document.createElement('header');header.className='sclpa-release-header';header.append(heading,intro);const body=document.createElement('div');body.className='sclpa-release-body';dialog.append(header,body);
         const notes = [
             ['更易用的悬浮面板','学习、设置、帮助重新分组；折叠后保留运行状态和启停按钮，记住位置与折叠状态，支持恢复位置、触屏拖动和脱敏诊断。'],
             ['后台调度与全能托管','依次处理专业视频、公需视频、公需文章与两类考试；折叠界面仍继续运行，暂停和完成后释放保活资源。后台锁不保证阻止所有浏览器冻结或系统休眠。'],
@@ -1613,18 +1621,20 @@ console.info('[执业药师] Beta 1.4.0-beta.2 已加载');
             ['可选本地题库','默认关闭，首次使用单独说明。按板块和测试保存，平台逐题确认才标为正确；支持层级预览、搜索、离线 ZIP、JSON/ZIP 导入和完整题目匹配。'],
             ['提醒、资源与隐私','异常提示独立于面板显示，临时提示自动消失，桌面通知支持检测与回退。收敛媒体计时器、清理监听，题库与配置保存在本地；诊断不含账号、Key、题干或完整链接。']
         ];
-        notes.forEach(([title,content])=>{const card=document.createElement('section');card.className='sclpa-release-card';const label=document.createElement('h3'),text=document.createElement('p');label.textContent=title;text.textContent=content;card.append(label,text);body.append(card);});
-        const close = document.createElement('button');close.type='button';close.textContent='我知道了';close.onclick=()=>dialog.close();const footer=document.createElement('footer');footer.className='sclpa-release-footer';footer.append(close);dialog.append(footer);
-        dialog.addEventListener('close',()=>{dialog.remove();if(previous?.isConnected)previous.focus({preventScroll:true});},{once:true});
-        dialog.addEventListener('click',event=>{if(event.target!==dialog)return;const r=dialog.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)dialog.close();});
-        const topClose=document.createElement('button');topClose.type='button';topClose.textContent='×';topClose.setAttribute('aria-label','关闭更新说明');topClose.style.cssText='float:right;padding:0 10px;background:transparent;color:#176b60;font-size:24px';topClose.onclick=()=>dialog.close();header.prepend(topClose);
+        if (backgroundSetup) body.innerHTML = backgroundSetupGuide();
+        else notes.forEach(([title,content])=>{const card=document.createElement('section');card.className='sclpa-release-card';const label=document.createElement('h3'),text=document.createElement('p');label.textContent=title;text.textContent=content;card.append(label,text);body.append(card);});
+        const close = document.createElement('button');close.type='button';close.textContent='我知道了';close.onclick=()=>{if(backgroundSetup)GM_setValue('sclpa_background_setup_ack',1);dialog.close();};const footer=document.createElement('footer');footer.className='sclpa-release-footer';footer.append(close);dialog.append(footer);
+        dialog.addEventListener('close',()=>{dialog.remove();if(previous?.isConnected)previous.focus({preventScroll:true});if(backgroundSetup)showFeatureAnnouncement();},{once:true});
+        if(backgroundSetup)dialog.addEventListener('cancel',event=>event.preventDefault());
+        dialog.addEventListener('click',event=>{if(backgroundSetup || event.target!==dialog)return;const r=dialog.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)dialog.close();});
+        const topClose=document.createElement('button');topClose.type='button';topClose.textContent='×';topClose.setAttribute('aria-label','关闭更新说明');topClose.style.cssText='float:right;padding:0 10px;background:transparent;color:#176b60;font-size:24px';topClose.onclick=()=>dialog.close();if(!backgroundSetup)header.prepend(topClose);
         document.body.append(dialog);dialog.showModal();heading.focus({preventScroll:true});body.scrollTop=0;
     }
 
     function showFeatureAnnouncement() {
         const version = window.__sclpaScriptInstance.version;
         if (GM_getValue('sclpa_features_prompt_version','') === version || document.getElementById('sclpa-release-notice')) return;
-        if (!document.body) return;
+        if (!document.body || document.getElementById('sclpa-release-dialog')) return;
         const notice=document.createElement('div');notice.id='sclpa-release-notice';notice.setAttribute('role','status');
         const title=document.createElement('strong'),text=document.createElement('span'),view=document.createElement('button'),dismiss=document.createElement('button');
         title.textContent='助手已更新 · '+version;text.textContent='看看 Beta 的新功能和使用方式。';view.type=dismiss.type='button';view.textContent='查看新功能';dismiss.textContent='稍后';
@@ -1646,7 +1656,9 @@ console.info('[执业药师] Beta 1.4.0-beta.2 已加载');
         const tabs=[...panel.querySelectorAll('.tab-btn')];tabs.forEach((tab,index)=>tab.addEventListener('keydown',event=>{let target;if(event.key==='ArrowRight')target=(index+1)%tabs.length;else if(event.key==='ArrowLeft')target=(index+tabs.length-1)%tabs.length;else if(event.key==='Home')target=0;else if(event.key==='End')target=tabs.length-1;else return;event.preventDefault();tabs[target].click();tabs[target].focus();}));
         window.addEventListener('resize',()=>{document.querySelectorAll('#mode-switcher-panel,#ai-helper-panel').forEach(clampFloatingPanel);positionFloatingNotices();});
         document.addEventListener('pointerdown',event=>{const active=event.target.closest?.('#mode-switcher-panel,#ai-helper-panel');if(!active)return;document.querySelectorAll('#mode-switcher-panel,#ai-helper-panel').forEach(node=>{node.style.zIndex=node===active?'2147483601':'2147483600';});},{passive:true});
-        renderPanelStatus();showFeatureAnnouncement();
+        renderPanelStatus();
+        if(GM_getValue('sclpa_background_setup_ack',0)!==1)showReleaseNotes({backgroundSetup:true});
+        else showFeatureAnnouncement();
     }
 
     /**
@@ -1698,6 +1710,7 @@ console.info('[执业药师] Beta 1.4.0-beta.2 已加载');
  <div class="sclpa-help-actions"><button type="button" id="show-release-notes-btn" class="sclpa-small-btn">查看新功能</button><button type="button" id="copy-diagnostics-btn" class="sclpa-small-btn">复制脱敏诊断</button></div>
  <details class="sclpa-guide" open><summary>第一次使用 · 三步开始</summary><ol><li>登录学习平台，选择年度并进入学习页面，确认助手显示“服务运行中”。</li><li>在“设置”调整学习倍速；需要 AI 答题时填入自己的 Key，检测后保存。</li><li>回到“学习”，选择“全能托管”或单个板块。可随时暂停，折叠面板也会继续运行。</li></ol></details>
  <details class="sclpa-guide"><summary>全能托管与手动切换</summary><p>按专业视频、公需视频、公需文章、专业考试、公需考试依次处理。当前板块确认无待处理任务后再前进；结束会停止服务。手动选择板块会结束全能托管，不会替你开启暂停的服务。</p><p>遇到登录失效、验证码或持续异常时，根据页面提醒处理，最后核对平台记录。</p></details>
+ <details class="sclpa-guide" id="background-setup-guide"><summary>后台使用前：防冻结设置</summary>${backgroundSetupGuide()}</details>
  <details class="sclpa-guide"><summary>倍速、后台与折叠</summary><p>视频和公需文章共用学习倍速。首次默认 1 倍，范围 1–16 倍。文章等待平台确认完成后才返回。</p><p>折叠只收起界面，学习、切页、答题、提醒和保活继续工作。服务运行时尝试申请后台锁和屏幕唤醒锁，暂停会释放；浏览器冻结或系统休眠无法保证被完全阻止，恢复后不会补算冻结期间的阅读时长。</p></details>
  <details class="sclpa-guide"><summary>AI Key、模型与错题重试</summary><p>Key 仅保存在本地脚本管理器中。输入后自动检测鉴权和模型列表，点击“保存并检测”应用；默认 deepseek-flash，可在下拉框更换。模型列表检测成功不代表余额充足。</p><p>未命中题库的题会发送给 DeepSeek。失败重试可设 0–3 次，累计已知错误答案用于排除；AI 答案仍需核对。<a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener noreferrer">获取自己的 API Key</a></p></details>
  <details class="sclpa-guide"><summary>本地题库 · 记录、预览与导入</summary><p>自动保存默认关闭，首次使用会单独说明。开启后按板块和测试归档；只有平台逐题确认的答案标为正确，未确认显示“未得出”。</p><p>设置中可搜索、预览、导出 ZIP，解压后打开 index.html 离线查看；同格式 JSON/ZIP 可导入为预设题库。匹配完整题干和选项，不要求目录对应；冲突或未确认的答案不会自动使用。关闭记录不影响已有题库检索。</p></details>

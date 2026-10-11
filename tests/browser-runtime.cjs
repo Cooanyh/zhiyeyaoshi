@@ -21,7 +21,7 @@ window.testRuntime = {
   show: showAutomationNotice
 };})();`);
 const shim = `
-window.mockValues = {sclpa_service_active: false};
+window.mockValues = {sclpa_service_active: false,sclpa_background_setup_ack:1};
 window.GM_getValue = (key, fallback) => key in mockValues ? mockValues[key] : fallback;
 window.GM_setValue = (key, value) => { mockValues[key] = value; };
 window.GM_addStyle = css => { const style = document.createElement('style'); style.textContent = css; document.head.append(style); };

@@ -9,7 +9,7 @@ const backgroundSeconds=Number(process.env.NATIVE_BACKGROUND_SECONDS||0);
 assert.ok(Number.isFinite(backgroundSeconds)&&backgroundSeconds>=0&&backgroundSeconds<=1800,'background duration must be 0–1800 seconds');
 let fixtureSource=`
 window.entered=0;window.returned=0;window.articleDone=false;window.articleTab=false;window.notifications=0;
-window.mockValues={sclpa_service_active:false,sclpa_playback_rate:8};
+window.mockValues={sclpa_service_active:false,sclpa_background_setup_ack:1,sclpa_playback_rate:8};
 window.GM_getValue=(key,fallback)=>key in mockValues?mockValues[key]:fallback;
 window.GM_setValue=(key,value)=>mockValues[key]=value;
 window.GM_addStyle=css=>{const style=document.createElement('style');style.textContent=css;document.head.append(style);};

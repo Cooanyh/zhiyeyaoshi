@@ -13,7 +13,7 @@
   const page=await context.newPage();page.setDefaultTimeout(7000);page.on('pageerror',e=>errors.push(e.message));
   try{
     await page.setContent('<!doctype html><meta charset="utf-8"><div id="fixture"></div>');
-    await page.addScriptTag({content:`window.bankValues={sclpa_service_active:false};window.bankRequests=[];window.bankClicks=[];window.bankReply='2.B';
+    await page.addScriptTag({content:`window.bankValues={sclpa_service_active:false,sclpa_background_setup_ack:1};window.bankRequests=[];window.bankClicks=[];window.bankReply='2.B';
       window.GM_getValue=(k,d)=>k in bankValues?bankValues[k]:d;window.GM_setValue=(k,v)=>{if(window.bankStorageFails&&k==='sclpa_question_bank_v1')throw Error('模拟空间不足');bankValues[k]=v;};window.GM_addStyle=css=>{var n=document.createElement('style');n.textContent=css;document.head.append(n);};window.GM_notification=()=>true;
       window.GM_xmlhttpRequest=options=>{bankRequests.push(JSON.parse(options.data).messages[1].content);options.onload({status:200,responseText:JSON.stringify({choices:[{message:{content:bankReply}}]})});};`});
     await page.addScriptTag({content:source});

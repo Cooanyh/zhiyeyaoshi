@@ -6,7 +6,7 @@ const {chromium}=require(process.env.PLAYWRIGHT_MODULE_PATH||'playwright');
  const errors=[];const page=await browser.newPage({viewport:{width:440,height:900}});page.setDefaultTimeout(7000);page.on('pageerror',error=>errors.push(error.message));
  try{
   await page.setContent('<!doctype html><meta charset="utf-8">');
-  await page.addScriptTag({content:`window.dsValues={sclpa_service_active:false};window.dsCalls=[];
+  await page.addScriptTag({content:`window.dsValues={sclpa_service_active:false,sclpa_background_setup_ack:1};window.dsCalls=[];
   window.GM_getValue=(key,fallback)=>key in dsValues?dsValues[key]:fallback;
   window.GM_setValue=(key,value)=>{dsValues[key]=value;};window.GM_addStyle=css=>{const style=document.createElement('style');style.textContent=css;document.head.append(style);};window.GM_notification=()=>true;
   window.GM_xmlhttpRequest=options=>{const entry={options,aborted:false};dsCalls.push(entry);if(options.method==='POST')options.onload({status:200,responseText:JSON.stringify({choices:[{message:{content:'1.A'}}]})});return {abort:()=>{entry.aborted=true;options.onabort?.();}};};`});

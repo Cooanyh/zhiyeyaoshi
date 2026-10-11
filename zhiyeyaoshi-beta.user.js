@@ -1,11 +1,11 @@
 // ==UserScript==
 // @name         四川省执业药师继续教育（Beta 测试版）
 // @namespace    http://tampermonkey.net/
-// @version      1.4.0-beta.1
+// @version      1.4.0-beta.2
 // @description  【Beta 测试版】四川省执业药师继续教育助手：视频与文章倍速、后台任务、全能托管、AI 答题纠错及异常提醒。
 // @author       Coren
-// @downloadURL  https://raw.githubusercontent.com/Cooanyh/zhiyeyaoshi/beta/1.4.0-beta.1/zhiyeyaoshi-beta.user.js
-// @updateURL    https://raw.githubusercontent.com/Cooanyh/zhiyeyaoshi/beta/1.4.0-beta.1/zhiyeyaoshi-beta.user.js
+// @downloadURL  https://raw.githubusercontent.com/Cooanyh/zhiyeyaoshi/beta/1.4.0-beta.2/zhiyeyaoshi-beta.user.js
+// @updateURL    https://raw.githubusercontent.com/Cooanyh/zhiyeyaoshi/beta/1.4.0-beta.2/zhiyeyaoshi-beta.user.js
 // @match        https://www.sclpa.cn/*
 // @match        https://zyys.ihehang.com/*
 // @grant        GM_xmlhttpRequest
@@ -23,13 +23,13 @@
 // ==/UserScript==
 
 // Script execution starts here. This log should appear first in console if script loads.
-console.info('[执业药师] Beta 1.4.0-beta.1 已加载');
+console.info('[执业药师] Beta 1.4.0-beta.2 已加载');
 
 (function() {
     'use strict';
 
     if (window.__sclpaScriptInstance) return;
-    window.__sclpaScriptInstance = { version: '1.4.0-beta.1' };
+    window.__sclpaScriptInstance = { version: '1.4.0-beta.2' };
 
     const debugEnabled = GM_getValue('sclpa_debug', false);
     const debugLog = (...args) => { if (debugEnabled) console.debug(...args); };
@@ -137,6 +137,319 @@ console.info('[执业药师] Beta 1.4.0-beta.1 已加载');
     const scriptSetInterval = backgroundScheduler.setInterval;
     const scriptClearTimeout = backgroundScheduler.clear;
     const scriptClearInterval = backgroundScheduler.clear;
+
+    const questionBank = createQuestionBank();
+
+    function createQuestionBank(){
+        const KEY='sclpa_question_bank_v1', ENABLED='sclpa_question_bank_record', INTRO='sclpa_question_bank_intro_v1';
+        const FORMAT='sclpa-question-bank', MAX_RECORDS=5000, MAX_JSON=8*1024*1024, MAX_ZIP=32*1024*1024, PAGE=40;
+        let state=null, index=null, positions=null, stateBytes=0, context=null, dirty=false, flushTimer=null, modal=null, previousFocus=null, locked=false, warned=false;
+        const text=value=>String(value??'').normalize('NFKC').replace(/\s+/g,' ').trim();
+        const title=value=>text(value).replace(/^\d+\s*[、.．:：)）]\s*/, '');
+        const enabled=()=>GM_getValue(ENABLED,false)===true;
+        const empty=()=>({schema:FORMAT,version:1,questions:[]});
+        const encode=value=>new TextEncoder().encode(value);
+        const key=q=>JSON.stringify([title(q.title),q.options.map(o=>text(o.text)).sort()]);
+        const group=q=>JSON.stringify([q.section,q.exam]);
+        const id=q=>JSON.stringify([q.section,q.exam,key(q)]);
+        const combination=q=>JSON.stringify(q.answer.map(label=>text(q.options.find(o=>o.label===label)?.text)).sort());
+        function normalizeQuestion(raw, imported=false){
+            if(!raw || typeof raw!=='object' || Array.isArray(raw))throw Error('题目必须是对象');
+            if(typeof raw.title!=='string' || !title(raw.title) || raw.title.length>4000)throw Error('题干为空或超过4000字符');
+            if(!Array.isArray(raw.options)||raw.options.length<2||raw.options.length>26)throw Error('每题须有2–26个选项');
+            const options=raw.options.map((option,i)=>{
+                const match=typeof option==='string'?option.match(/^\s*([A-Z])[.．、:：)）]\s*([\s\S]*)$/i):null;
+                const label=String(match?match[1]:option?.label??'').toUpperCase();
+                const content=match?match[2]:option?.text;
+                if(!/^[A-Z]$/.test(label)||typeof content!=='string'||!text(content)||content.length>4000)throw Error('选项标签或内容无效');
+                return {label,text:text(content)};
+            });
+            if(new Set(options.map(o=>o.label)).size!==options.length)throw Error('选项标签重复');
+            const status=raw.status??'unresolved';
+            if(!['confirmed','unresolved','conflict'].includes(status))throw Error('答案状态无效');
+            const type=['single','multiple','unknown'].includes(raw.type)?raw.type:'unknown';
+            if(!Array.isArray(raw.answer??[]))throw Error('answer须为选项字母数组');
+            const answer=Array.from(new Set((raw.answer??[]).map(a=>String(a).toUpperCase()))).sort();
+            if(answer.some(a=>!/^[A-Z]$/.test(a)||!options.some(o=>o.label===a)) || (type==='single'&&answer.length>1))throw Error('答案包含无效选项');
+            if(status==='confirmed'&&!answer.length)throw Error('已确认答案不能为空');
+            const section=raw.section??'导入题库', exam=raw.exam??'未命名测试';
+            if(typeof section!=='string'||typeof exam!=='string'||section.length>200||exam.length>200)throw Error('板块或测试名称无效');
+            return {section:text(section)||'导入题库',exam:text(exam)||'未命名测试',title:title(raw.title),type,options,
+                answer:status==='confirmed'?answer:[],status,source:imported?'import':raw.source==='platform'?'platform':'import'};
+        }
+        function validate(payload, imported=false){
+            if(!payload || payload.schema!==FORMAT || payload.version!==1 || !Array.isArray(payload.questions))throw Error('不是受支持的题库格式（schema/version/questions）');
+            if(payload.questions.length>MAX_RECORDS)throw Error('单个题库最多5000题');
+            return {schema:FORMAT,version:1,questions:payload.questions.map(q=>normalizeQuestion(q,imported))};
+        }
+        function load(){
+            if(state)return state;
+            const raw=GM_getValue(KEY,'');
+            try{
+                if(raw && (typeof raw!=='string'||raw.length>MAX_JSON))throw Error('本地题库超出范围');
+                state=raw?validate(JSON.parse(raw)):empty();stateBytes=encode(JSON.stringify(state)).length;if(stateBytes>MAX_JSON)throw Error('本地题库过大');
+            }catch(_){state=empty();locked=true;report('本地题库无法读取，已保留原数据，停止写入。请先检查脚本管理器中的题库备份。');}
+            return state;
+        }
+        function report(message){
+            const node=document.getElementById('sqb-status');if(node)node.textContent=message;
+            if(!warned){warned=true;showAutomationNotice(message);}
+        }
+        function serialize(next){const raw=JSON.stringify(next);if(encode(raw).length>MAX_JSON)throw Error('题库超过8 MiB，请先导出备份');return raw;}
+        function save(next){
+            if(locked)throw Error('本地题库无法读取，未覆盖原数据');
+            const raw=serialize(next);
+            const result=GM_setValue(KEY,raw);
+            if(result?.catch)result.catch(()=>report('题库写入失败，请导出当前题库备份。'));
+        }
+        function flush(){
+            if(flushTimer!==null){scriptClearTimeout(flushTimer);flushTimer=null;}
+            if(!dirty)return;
+            try{save(load());dirty=false;index=null;}catch(error){report(error.message);}
+        }
+        function changed(){index=null;dirty=true;if(flushTimer===null)flushTimer=scriptSetTimeout(flush,500);}
+        function domQuestion(item){
+            return {title:getNormalizedQuestionTitle(item),type:/多选/.test(item.querySelector('.examination-body-title')?.innerText||'')?'multiple':/单选/.test(item.querySelector('.examination-body-title')?.innerText||'')?'single':'unknown',
+                options:Array.from(item.querySelectorAll('.examination-check-item')).map(o=>o.innerText.trim())};
+        }
+        function start(button){
+            const row=button?.closest('tr')||button?.closest('.el-card')||button?.closest('li');
+            const names=row?Array.from(row.querySelectorAll('[data-exam-name], .exam-name, .course-name, td .cell')).map(n=>n.innerText.trim()):[];
+            const exam=names.find(n=>n&&!/^\d+$|^开始考试$|^待考试$|^未完成$|^已完成$/.test(n))||'';
+            context={section:currentExamListRoute.toLowerCase().includes('openonlineexam')?'公需课考试':'专业课考试',exam:cleanName(exam)||'未命名测试'};
+            if(enabled())GM_setValue('sclpa_question_bank_context',context);
+        }
+        function cleanName(value){return text(value).replace(/\b\d{17}[\dXx]\b/g,'').slice(0,160);}
+        function getContext(){
+            const explicit=document.querySelector('[data-exam-title], .examination-title, .exam-title');
+            if(context&&!cleanName(explicit?.innerText))return context;
+            const stored=GM_getValue('sclpa_question_bank_context',null);
+            context={section:context?.section||(stored?.section==='公需课考试'?'公需课考试':'专业课考试'),exam:cleanName(explicit?.innerText||stored?.exam)||'未命名测试'};
+            return context;
+        }
+        function merge(target, candidate){
+            const existing=target.get(id(candidate));
+            if(!existing){target.set(id(candidate),candidate);return;}
+            if(candidate.status==='unresolved')return;
+            if(existing.status==='confirmed'&&existing.source==='platform'&&candidate.source==='import')return;
+            if(candidate.status==='confirmed'&&candidate.source==='platform'){
+                const previousTexts=new Set(candidate.answer.map(l=>text(candidate.options.find(o=>o.label===l).text)));
+                existing.answer=existing.options.filter(o=>previousTexts.has(text(o.text))).map(o=>o.label).sort();
+                existing.status='confirmed';existing.source='platform';if(candidate.type!=='unknown')existing.type=candidate.type;else if(existing.answer.length>1)existing.type='multiple';return;
+            }
+            if(existing.status==='unresolved'){
+                const labels=new Set(candidate.answer.map(l=>text(candidate.options.find(o=>o.label===l).text)));
+                existing.answer=existing.options.filter(o=>labels.has(text(o.text))).map(o=>o.label).sort();existing.status=candidate.status;existing.source=candidate.source;if(candidate.type!=='unknown')existing.type=candidate.type;else if(existing.answer.length>1)existing.type='multiple';return;
+            }
+            if(existing.status==='conflict'||candidate.status==='conflict'||combination(existing)!==combination(candidate)){
+                existing.answer=[];existing.status='conflict';
+            }
+        }
+        function record(question, answer=''){
+            if(!enabled())return;
+            try{
+                const q=normalizeQuestion({...getContext(),...question,source:'platform',status:answer?'confirmed':'unresolved',answer:answer?[...canonicalAnswer(answer)]:[]});
+                const current=load();if(locked)return;
+                if(!positions)positions=new Map(current.questions.map((old,i)=>[id(old),i]));
+                const position=positions.get(id(q));
+                let replacement=q,delta=encode(JSON.stringify(q)).length+1;
+                if(position!==undefined){const old=current.questions[position];if(!answer)return;replacement={...old,answer:[...old.answer]};const map=new Map([[id(old),replacement]]);merge(map,q);delta=encode(JSON.stringify(replacement)).length-encode(JSON.stringify(old)).length;}
+                if(stateBytes+delta>MAX_JSON){report('题库已达8 MiB上限，请先导出备份。');return;}
+                if(position===undefined){if(current.questions.length>=MAX_RECORDS){report('题库已达5000题上限，请先导出备份。');return;}positions.set(id(q),current.questions.length);current.questions.push(q);}else current.questions[position]=replacement;
+                stateBytes+=delta;changed();
+            }catch(_){report('部分题目结构无法识别，未存为正确答案。');}
+        }
+        function attempt(item){record(domQuestion(item));}
+        function wrong(question, answer){
+            let q;try{q=normalizeQuestion({...question,answer:[],status:'unresolved'});}catch(_){return;}
+            const letters=canonicalAnswer(answer);const labels=letters.split('');
+            if(!labels.length||labels.some(l=>!q.options.some(o=>o.label===l)))return;
+            q.answer=labels;const rejected=combination(q);let touched=false;
+            load().questions.forEach(old=>{if(old.status==='confirmed'&&key(old)===key(q)&&combination(old)===rejected){old.answer=[];old.status='unresolved';touched=true;}});
+            if(touched){stateBytes=encode(JSON.stringify(load())).length;changed();}
+        }
+        function review(){
+            if(!enabled()&&!GM_getValue(KEY,''))return;
+            document.querySelectorAll('.examination-body-item').forEach(item=>{
+                const stateNode=item.querySelector('.details-state');
+                const details=item.querySelector('.examination-details');
+                if(!stateNode || !isElementVisible(stateNode))return;
+                const q=domQuestion(item), stateText=stateNode.innerText.trim();
+                const previous=item.querySelector('.examination-details em')?.innerText.trim()||'';
+                if(/回答错误|作答错误/.test(stateText)){wrong(q,previous);record(q);}
+                const explicit=(details?.innerText||'').match(/(?:正确答案|参考答案)\s*[:：]\s*([A-Z](?:[\s、,，]*[A-Z])*)/i)?.[1];
+                const correct=/^(?:回答正确|作答正确|正确)[!！。\s]*$/.test(stateText)?previous:'';
+                if(explicit||correct)record(q,explicit||correct);
+            });flush();
+        }
+        function lookup(question,withSource=false){
+            let q;try{q=normalizeQuestion({...question,answer:[],status:'unresolved'});}catch(_){return '';}
+            if(new Set(q.options.map(o=>text(o.text))).size!==q.options.length)return '';
+            if(!index){index=new Map();load().questions.forEach(row=>{const k=key(row);if(!index.has(k))index.set(k,[]);index.get(k).push(row);});}
+            const candidates=index.get(key(q))||[];
+            const platform=candidates.filter(r=>r.source==='platform'&&r.status!=='unresolved');
+            const usable=platform.length?platform:candidates.filter(r=>r.status!=='unresolved');
+            if(!usable.length||usable.some(r=>r.status!=='confirmed'))return '';
+            const combos=new Set(usable.map(combination));if(combos.size!==1)return '';
+            const resultTexts=new Set(usable[0].answer.map(l=>text(usable[0].options.find(o=>o.label===l).text)));
+            const result=q.options.filter(o=>resultTexts.has(text(o.text))).map(o=>o.label).sort().join('');
+            if(!result || (q.type==='single'&&result.length!==1) || isConfirmedWrongAnswer({title:q.title,options:q.options.map(o=>o.label+'.'+o.text)},result))return '';
+            return withSource?{answer:result,source:platform.length?'platform':'import'}:result;
+        }
+        function lookupItem(item,withSource=false){return lookup(domQuestion(item),withSource);}
+        function importPayload(payload){
+            const incoming=validate(payload,true), current=load();if(locked)throw Error('本地题库无法读取，未覆盖原数据');
+            const next=validate(JSON.parse(JSON.stringify(current)));
+            const map=new Map(next.questions.map(q=>[id(q),q]));incoming.questions.forEach(q=>merge(map,q));
+            next.questions=[...map.values()];if(next.questions.length>MAX_RECORDS)throw Error('合并后超过5000题，未导入');
+            save(next);state=next;stateBytes=encode(JSON.stringify(next)).length;index=null;positions=null;dirty=false;if(flushTimer!==null){scriptClearTimeout(flushTimer);flushTimer=null;}
+            return {imported:incoming.questions.length,total:next.questions.length,conflicts:next.questions.filter(q=>q.status==='conflict').length};
+        }
+        let crcTable=null;
+        function crc32(bytes){
+            if(!crcTable)crcTable=Uint32Array.from({length:256},(_,n)=>{for(let k=0;k<8;k++)n=(n&1)?0xedb88320^(n>>>1):n>>>1;return n>>>0;});
+            let crc=0xffffffff;for(const byte of bytes)crc=crcTable[(crc^byte)&255]^(crc>>>8);return (crc^0xffffffff)>>>0;
+        }
+        function zip(entries){
+            const parts=[],directory=[];let offset=0,centralSize=0;
+            for(const [name,content] of entries){
+                const filename=encode(name), bytes=encode(content), crc=crc32(bytes), header=new Uint8Array(30+filename.length), view=new DataView(header.buffer);
+                view.setUint32(0,0x04034b50,true);view.setUint16(4,20,true);view.setUint16(6,0x800,true);view.setUint16(12,0x21,true);
+                view.setUint32(14,crc,true);view.setUint32(18,bytes.length,true);view.setUint32(22,bytes.length,true);view.setUint16(26,filename.length,true);header.set(filename,30);
+                const central=new Uint8Array(46+filename.length), cv=new DataView(central.buffer);
+                cv.setUint32(0,0x02014b50,true);cv.setUint16(4,20,true);cv.setUint16(6,20,true);cv.setUint16(8,0x800,true);cv.setUint16(14,0x21,true);
+                cv.setUint32(16,crc,true);cv.setUint32(20,bytes.length,true);cv.setUint32(24,bytes.length,true);cv.setUint16(28,filename.length,true);cv.setUint32(42,offset,true);central.set(filename,46);
+                parts.push(header,bytes);directory.push(central);offset+=header.length+bytes.length;centralSize+=central.length;
+                if(offset+centralSize+22>MAX_ZIP)throw Error('导出超过32 MiB，请缩小题库后重试');
+            }
+            const end=new Uint8Array(22),ev=new DataView(end.buffer);ev.setUint32(0,0x06054b50,true);ev.setUint16(8,entries.length,true);ev.setUint16(10,entries.length,true);ev.setUint32(12,centralSize,true);ev.setUint32(16,offset,true);
+            return new Blob([...parts,...directory,end],{type:'application/zip'});
+        }
+        async function readZip(bytes){
+            if(bytes.length>MAX_ZIP||bytes.length<22)throw Error('ZIP过大或不完整');
+            const view=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength);let end=-1;
+            for(let i=bytes.length-22;i>=Math.max(0,bytes.length-65557);i--){if(view.getUint32(i,true)===0x06054b50&&i+22+view.getUint16(i+20,true)===bytes.length){end=i;break;}}
+            if(end<0)throw Error('ZIP目录不完整');
+            const count=view.getUint16(end+10,true), central=view.getUint32(end+16,true), size=view.getUint32(end+12,true);
+            if(view.getUint16(end+4,true)||view.getUint16(end+6,true)||count!==view.getUint16(end+8,true)||count>6000||central+size!==end)throw Error('不支持此ZIP结构');
+            const decoder=new TextDecoder('utf-8',{fatal:true});let cursor=central,found=null;
+            for(let n=0;n<count;n++){
+                if(cursor+46>end||view.getUint32(cursor,true)!==0x02014b50)throw Error('ZIP条目无效');
+                const flags=view.getUint16(cursor+8,true), method=view.getUint16(cursor+10,true), crc=view.getUint32(cursor+16,true), packed=view.getUint32(cursor+20,true), length=view.getUint32(cursor+24,true);
+                const nameLength=view.getUint16(cursor+28,true), extra=view.getUint16(cursor+30,true), comment=view.getUint16(cursor+32,true), local=view.getUint32(cursor+42,true);
+                const next=cursor+46+nameLength+extra+comment;if(next>end)throw Error('ZIP条目越界');
+                const name=decoder.decode(bytes.subarray(cursor+46,cursor+46+nameLength));
+                if(/(^[/\\]|^[A-Za-z]:|[\x00-\x1f]|(?:^|[/\\])\.\.(?:[/\\]|$))/.test(name))throw Error('ZIP包含不安全路径');
+                if(name.split('/').at(-1)==='question-bank.json'){
+                    if(found)throw Error('ZIP包含多份题库JSON，请保留一份');
+                    if(flags&1||![0,8].includes(method)||length>MAX_JSON||packed>MAX_ZIP||local+30>central||view.getUint32(local,true)!==0x04034b50)throw Error('题库JSON压缩方式或大小无效');
+                    const localName=view.getUint16(local+26,true),localExtra=view.getUint16(local+28,true),start=local+30+localName+localExtra;
+                    if(view.getUint16(local+8,true)!==method||start+packed>central||decoder.decode(bytes.subarray(local+30,local+30+localName))!==name)throw Error('ZIP数据越界或目录不一致');
+                    found={bytes:bytes.subarray(start,start+packed),method,length,crc};
+                }
+                cursor=next;
+            }
+            if(cursor!==end||!found)throw Error('ZIP中没有question-bank.json');
+            let output=found.bytes;
+            if(found.method===8){
+                let stream;try{stream=new Blob([output]).stream().pipeThrough(new DecompressionStream('deflate-raw'));}catch(_){throw Error('浏览器不支持此压缩格式，请解压后导入question-bank.json');}
+                const reader=stream.getReader(),chunks=[];let total=0;
+                try{while(true){const {done,value}=await reader.read();if(done)break;total+=value.length;if(total>MAX_JSON||total>found.length)throw Error('解压后的题库超过限制');chunks.push(value);}}
+                catch(error){await reader.cancel().catch(()=>{});throw error;}
+                output=new Uint8Array(total);let position=0;chunks.forEach(chunk=>{output.set(chunk,position);position+=chunk.length;});
+            }
+            if(output.length!==found.length||crc32(output)!==found.crc)throw Error('ZIP题库校验失败');
+            return decoder.decode(output);
+        }
+        async function importFile(file){
+            if(!file||file.size>MAX_ZIP)throw Error('文件大小不能超过32 MiB');
+            const bytes=new Uint8Array(await file.arrayBuffer());
+            const json=bytes[0]===0x50&&bytes[1]===0x4b?await readZip(bytes):new TextDecoder('utf-8',{fatal:true}).decode(bytes);
+            if(encode(json).length>MAX_JSON)throw Error('题库JSON不能超过8 MiB');
+            return importPayload(JSON.parse(json.replace(/^\uFEFF/,'')));
+        }
+        const css=`.sqb-actions button{padding:7px 10px;border:1px solid #cbd8e8;border-radius:7px;background:#fff;color:#234b72;cursor:pointer}.sqb-overlay{position:fixed;inset:0;background:#172b4da6;z-index:2147483647;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;font:14px/1.6 system-ui,sans-serif;color:#23324a}.sqb-dialog{width:min(1050px,100%);max-height:88vh;background:#f5f7fb;border-radius:16px;box-shadow:0 18px 80px #0005;display:flex;flex-direction:column;overflow:hidden}.sqb-dialog *{box-sizing:border-box}.sqb-head,.sqb-tools{display:flex;align-items:center;gap:10px;padding:14px 20px;border-bottom:1px solid #dce4ef;flex-wrap:wrap}.sqb-head h2{font-size:20px;margin:0;flex:1}.sqb-dialog button{border:1px solid #cbd8e8;border-radius:8px;background:white;color:#234b72;padding:7px 12px;cursor:pointer;font:inherit}.sqb-dialog button:hover,.sqb-dialog button[aria-current=true]{background:#e0efff;border-color:#3284cc}.sqb-dialog button:disabled{opacity:.55;cursor:wait}.sqb-tools input{flex:1;min-width:160px;border:1px solid #b9cce1;border-radius:8px;padding:9px;font:inherit}.sqb-layout{display:grid;grid-template-columns:240px minmax(0,1fr);min-height:280px;overflow:hidden}.sqb-tree,.sqb-content{padding:16px;overflow:auto;max-height:60vh}.sqb-tree{background:#edf2f8;border-right:1px solid #dce4ef}.sqb-tree h3{font-size:14px;color:#64758c;margin:15px 0 6px}.sqb-tree button{display:block;width:100%;text-align:left;margin-bottom:6px;overflow-wrap:anywhere}.sqb-card{background:#fff;border:1px solid #dce4ef;border-radius:12px;margin:0 0 12px;padding:16px;overflow-wrap:anywhere}.sqb-card h3{margin:0 0 10px;font-size:16px}.sqb-card ul{margin:0 0 12px;padding-left:22px}.sqb-answer{border-radius:6px;background:#e6f4ee;color:#216344;padding:8px 10px;white-space:pre-wrap}.sqb-unknown{background:#fff1df;color:#8a5815}.sqb-meta{font-size:12px;color:#64758c}.sqb-footer{padding:10px 20px;color:#64758c;border-top:1px solid #dce4ef}.sqb-intro{padding:22px;overflow:auto}.sqb-intro p{margin:0 0 14px}.sqb-pager{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:14px}body.sqb-offline{max-width:1000px;margin:32px auto;padding:0 18px;background:#f5f7fb;color:#23324a;font:16px/1.7 system-ui,sans-serif}.sqb-offline a{color:#1d65a6}.sqb-offline h1{font-size:26px}@media(max-width:620px){.sqb-layout{grid-template-columns:1fr}.sqb-tree{max-height:160px;border-right:0;border-bottom:1px solid #dce4ef}.sqb-content{max-height:45vh}.sqb-overlay{padding:8px}.sqb-head,.sqb-tools{padding:12px}.sqb-dialog{max-height:94vh}}`;
+        const escape=value=>String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        const answerLabel=q=>q.status==='confirmed'?q.answer.map(l=>l+'. '+q.options.find(o=>o.label===l).text).join('\n'):q.status==='conflict'?'答案冲突，未用于自动答题':'未得出';
+        function htmlQuestion(q,i){return `<article class="sqb-card"><div class="sqb-meta">${escape(q.section)} / ${escape(q.exam)}</div><h3>${i+1}. ${escape(q.title)}</h3><ul>${q.options.map(o=>`<li>${escape(o.label)}. ${escape(o.text)}</li>`).join('')}</ul><div class="sqb-answer ${q.status==='confirmed'?'':'sqb-unknown'}">${escape(answerLabel(q))}</div><div class="sqb-meta">${q.status==='confirmed'?(q.source==='platform'?'平台逐题确认':'导入题库提供'):'未确认正确答案'}</div></article>`;}
+        function htmlPage(heading,body,style='style.css'){return `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'"><title>${escape(heading)}</title><link rel="stylesheet" href="${style}"><body class="sqb-offline"><h1>${escape(heading)}</h1>${body}</body></html>`;}
+        function exportZip(){
+            flush();const snapshot=load();if(locked)throw Error('本地题库无法读取');
+            const entries=[['question-bank.json',serialize(snapshot)],['style.css',css]], groups=new Map();
+            snapshot.questions.forEach(q=>{const k=group(q);if(!groups.has(k))groups.set(k,[]);groups.get(k).push(q);});
+            const folder=(value,n)=>`${String(n+1).padStart(3,'0')} ${text(value).replace(/[<>:"/\\|?*\x00-\x1f\x7f]/g,'_').replace(/[. ]+$/,'').slice(0,70)||'未命名'}`;
+            const sections=new Map(), links=[];let i=0;
+            for(const rows of groups.values()){
+                const q=rows[0];if(!sections.has(q.section))sections.set(q.section,sections.size);
+                const parts=[folder(q.section,sections.get(q.section)),folder(q.exam,i++)];const name=parts.join('/')+'/index.html';
+                entries.push([name,htmlPage(q.exam,'<p><a href="../../index.html">← 返回题库目录</a></p>'+rows.map(htmlQuestion).join(''),'../../style.css')]);
+                links.push(`<li>${escape(q.section)} / <a href="${parts.map(encodeURIComponent).join('/')}/index.html">${escape(q.exam)}</a>（${rows.length}题）</li>`);
+            }
+            entries.push(['index.html',htmlPage('学习题库','<p>按板块和测试名称归档。解压后双击本页，无需联网。未确认的答案显示“未得出”。</p><ul>'+links.join('')+'</ul><p><a href="question-bank.json">结构化题库 JSON（可重新导入）</a> · <a href="FORMAT.txt">格式说明</a></p>')]);
+            entries.push(['FORMAT.txt','格式：sclpa-question-bank，version：1。根文件question-bank.json可重新导入。\nquestions为题目数组：section板块、exam测试名、title题干、type(single/multiple/unknown)、options([{label:"A",text:"选项内容"}])、answer(["A"])、status(confirmed/unresolved/conflict)、source(platform/import)。\n导入时不依赖目录、板块或测试名匹配；缺省板块/测试名分别为导入题库/未命名测试。未得出用answer:[]、status:"unresolved"。确认答案必须与选项标签对应，导入答案统一视为导入提供。\n导入JSON最多8 MiB、5000题；ZIP最多32 MiB。支持本脚本导出ZIP、标准存储/Deflate ZIP；不执行导入HTML或脚本。']);
+            return zip(entries);
+        }
+        function installStyle(){if(document.getElementById('sclpa-bank-style'))return;const style=document.createElement('style');style.id='sclpa-bank-style';style.textContent=css;document.head.append(style);}
+        function node(tag,content,className){const n=document.createElement(tag);if(content!==undefined)n.textContent=content;if(className)n.className=className;return n;}
+        function button(label,callback){const b=node('button',label);b.type='button';b.onclick=callback;return b;}
+        function close(){if(!modal)return;modal.remove();modal=null;previousFocus?.focus?.({preventScroll:true});previousFocus=null;}
+        function dialog(heading){
+            close();installStyle();previousFocus=document.activeElement;
+            const overlay=node('div',undefined,'sqb-overlay'), box=node('section',undefined,'sqb-dialog'),head=node('header',undefined,'sqb-head'),label=node('h2',heading);
+            label.id='sqb-heading';label.tabIndex=-1;box.setAttribute('role','dialog');box.setAttribute('aria-modal','true');box.setAttribute('aria-labelledby',label.id);
+            head.append(label,button('关闭',close));box.append(head);overlay.append(box);overlay.onclick=e=>{if(e.target===overlay)close();};
+            overlay.onkeydown=e=>{if(e.key==='Escape'){e.stopPropagation();close();}if(e.key==='Tab'){const all=[...box.querySelectorAll('button,input')].filter(n=>!n.disabled);if(!all.length)return;const first=all[0],last=all.at(-1);if(e.shiftKey&&(document.activeElement===first||document.activeElement===label)){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}};
+            document.body.append(overlay);modal=overlay;label.focus({preventScroll:true});return box;
+        }
+        function introduction(after){
+            const box=dialog('本地题库：首次使用说明'), body=node('div',undefined,'sqb-intro');
+            const lines=['自动保存默认关闭。阅读说明不会自动开启；请回到设置明确勾选后，才会记录之后做过的题。',
+                '记录按“专业课/公需课考试 → 具体测试名称 → 题目与选项”归档。只有平台逐题确认的答案才标为正确；AI 猜测、仅显示总分或重试后仍未确认的题，保留题目并显示“未得出”。',
+                '题库保存在当前浏览器的脚本管理器中，不上传账号或密钥。更换浏览器、移除脚本或清理管理器数据前，请导出备份。导出的题目内容由你自行保管。',
+                '设置里可预览层级、搜索题目，并导出 ZIP。解压后双击 index.html 即可离线阅读；question-bank.json 是可重新导入的标准数据。',
+                '可导入相同格式的 JSON 或 ZIP 作为预设题库，无需目录和测试名称一致。自动答题优先精确匹配题干及完整选项；选项重排会重新映射答案，冲突或未得出的答案不会用于答题，未匹配的题才交给 AI。',
+                '记录开关关闭不影响已有题库的预览、导出或导入检索。题库最多5000题；题目和导入答案仍需自行核对。'];
+            lines.forEach(line=>body.append(node('p',line)));body.append(button('我知道了',()=>{GM_setValue(INTRO,true);close();after?.();}));box.append(body);
+        }
+        function firstUse(after){if(GM_getValue(INTRO,false)===true)after();else introduction(after);}
+        function download(){
+            try{const blob=exportZip(),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='学习题库-'+new Date().toISOString().slice(0,10)+'.zip';document.body.append(a);a.click();a.remove();scriptSetTimeout(()=>URL.revokeObjectURL(url),1000);}
+            catch(error){showAutomationNotice('导出失败：'+error.message);}
+        }
+        function chooseFile(onSuccess){
+            const input=document.createElement('input');input.type='file';input.accept='.json,.zip,application/json,application/zip';
+            input.onchange=async()=>{try{const result=await importFile(input.files?.[0]);showAutomationNotice(`已导入${result.imported}题，题库共${result.total}题；冲突${result.conflicts}题。`,{autoHideMs:8000});onSuccess?.();}catch(error){showAutomationNotice('导入失败，未覆盖题库：'+error.message);}finally{input.value='';}};input.click();
+        }
+        function open(){firstUse(preview);}
+        function preview(){
+            const box=dialog('我的题库'), tools=node('div',undefined,'sqb-tools'), search=node('input');search.type='search';search.placeholder='搜索题干、选项或测试名称';search.maxLength=200;search.setAttribute('aria-label','搜索题库');
+            const layout=node('div',undefined,'sqb-layout'),tree=node('nav',undefined,'sqb-tree'),content=node('main',undefined,'sqb-content'),footer=node('div',undefined,'sqb-footer');tree.setAttribute('aria-label','板块与测试层级');
+            let selected=null,groupPage=0,questionPage=0;tools.append(search,button('导出 ZIP',download),button('导入题库',()=>chooseFile(()=>{if(modal?.contains(box))render();})));layout.append(tree,content);box.append(tools,layout,footer);
+            function pager(parent,page,total,onPage){if(total<=PAGE)return;const bar=node('div',undefined,'sqb-pager'),prev=button('上一页',()=>onPage(page-1)),next=button('下一页',()=>onPage(page+1));prev.disabled=page<=0;next.disabled=(page+1)*PAGE>=total;bar.append(prev,node('span',`${page+1}/${Math.ceil(total/PAGE)}`),next);parent.append(bar);}
+            function render(){
+                const records=load().questions,query=text(search.value),filtered=records.filter(q=>!query||[q.title,q.exam,q.section,...q.options.map(o=>o.text)].some(value=>value.includes(query)));
+                const groups=new Map();filtered.forEach(q=>{const k=group(q);if(!groups.has(k))groups.set(k,[]);groups.get(k).push(q);});const entries=[...groups.entries()].sort((a,b)=>a[1][0].section.localeCompare(b[1][0].section)||a[1][0].exam.localeCompare(b[1][0].exam));
+                tree.replaceChildren(button('全部题目',()=>{selected=null;questionPage=0;render();}));let lastSection='';
+                entries.slice(groupPage*PAGE,(groupPage+1)*PAGE).forEach(([k,rows])=>{if(rows[0].section!==lastSection){lastSection=rows[0].section;tree.append(node('h3',lastSection));}const entry=button(rows[0].exam+`（${rows.length}题）`,()=>{selected=k;questionPage=0;render();});entry.setAttribute('aria-current',String(selected===k));tree.append(entry);});
+                pager(tree,groupPage,entries.length,page=>{groupPage=page;render();});const visible=selected?(groups.get(selected)||[]):filtered;
+                content.replaceChildren(node('p',selected?`${JSON.parse(selected).join(' / ')} · ${visible.length}题`:`全部题目 · ${visible.length}题`,'sqb-meta'));
+                visible.slice(questionPage*PAGE,(questionPage+1)*PAGE).forEach((q,i)=>{const card=node('article',undefined,'sqb-card');card.append(node('div',q.section+' / '+q.exam,'sqb-meta'),node('h3',`${questionPage*PAGE+i+1}. ${q.title}`));const options=node('ul');q.options.forEach(o=>options.append(node('li',o.label+'. '+o.text)));card.append(options,node('div',answerLabel(q),'sqb-answer '+(q.status==='confirmed'?'':'sqb-unknown')),node('div',q.status==='confirmed'?(q.source==='platform'?'平台逐题确认':'导入题库提供'):'未确认正确答案','sqb-meta'));content.append(card);});
+                if(!visible.length)content.append(node('p',records.length?'没有匹配的题目。':'题库还没有题目。可开启自动保存，或导入已有题库。'));
+                pager(content,questionPage,visible.length,page=>{questionPage=page;render();});footer.textContent=`共${records.length}题 · 已有答案${records.filter(q=>q.status==='confirmed').length}题 · 每页最多${PAGE}题 · 自动保存${enabled()?'已开启':'已关闭'}`;
+            }
+            search.oninput=()=>{selected=null;questionPage=0;groupPage=0;render();};render();
+        }
+        function mount(panel){
+            installStyle();
+            const settings=panel.querySelector('#tab-settings');if(!settings||settings.querySelector('#sqb-record-toggle'))return;
+            const section=node('div',undefined,'panel-section'),heading=node('div','本地题库','section-title'),label=node('label'),checkbox=document.createElement('input');checkbox.type='checkbox';checkbox.id='sqb-record-toggle';checkbox.checked=enabled();label.append(checkbox,document.createTextNode(' 自动保存做过的题目与已确认答案'));
+            checkbox.onchange=()=>{if(checkbox.checked&&GM_getValue(INTRO,false)!==true){checkbox.checked=false;introduction();return;}GM_setValue(ENABLED,checkbox.checked);if(!checkbox.checked)flush();};
+            const actions=node('div');actions.className='sqb-actions';actions.style.cssText='display:flex;gap:8px;flex-wrap:wrap;margin-top:10px';actions.append(button('预览题库',open),button('导出 ZIP',()=>firstUse(download)),button('导入题库',()=>firstUse(()=>chooseFile())));
+            section.append(heading,label,node('p','默认关闭；未确认答案显示“未得出”。导入题库可独立用于自动答题检索。','sqb-meta'),actions,node('div','','sqb-meta'));section.lastChild.id='sqb-status';settings.append(section);
+        }
+        window.addEventListener('pagehide',flush);
+        return {enabled,attempt,record,review,wrong,start,lookup,lookupItem,flush,mount,open,importPayload,importFile,exportZip,snapshot:()=>JSON.parse(JSON.stringify(load())),close};
+    }
 
     function createRuntimeKeepAwake() {
         const status = { running: false, webLock: 'inactive', screenLock: 'inactive' };
@@ -556,6 +869,13 @@ console.info('[执业药师] Beta 1.4.0-beta.1 已加载');
         return title ? (examAnswerMemory.get(title) || '') : '';
     }
 
+    function getPreferredAnswerForItem(item) {
+        const bank = questionBank.lookupItem(item, true);
+        const remembered = getRememberedAnswerForItem(item);
+        if (bank && bank.source === 'platform') return bank.answer;
+        return (examRetryChainActive ? remembered : '') || (bank && bank.answer) || remembered || '';
+    }
+
     function normalizeAnswerLetters(value) {
         if (!value) return '';
         const letters = String(value).match(/[A-Za-z]/g);
@@ -619,7 +939,17 @@ console.info('[执业药师] Beta 1.4.0-beta.1 已加载');
         const maxRetries = normalizeExamRetryLimit(GM_getValue('sclpa_exam_max_retries', 3));
         if (maxRetries <= 0 || examAttemptCount >= maxRetries) {
             console.warn(`[Script] 考试未通过，已达自动重试上限（${examAttemptCount}/${maxRetries}），放弃该场继续下一场。`);
-            recordFailedExamAndContinue();
+            const reviewButton = findButtonByExactText('纠错查看') || findButtonByExactText('查看答案') || findButtonByExactText('查看错题') || findButtonByExactText('错题查看');
+            const alreadyVisible = Array.from(document.querySelectorAll('.examination-body-item .details-state')).some(isElementVisible);
+            if (questionBank.enabled() && reviewButton && !alreadyVisible) {
+                const generation = aiBatchGeneration;
+                clickElement(reviewButton);
+                waitForReviewPage().then(found => {
+                    if (!isServiceActive || aiBatchGeneration !== generation) return;
+                    if (found) questionBank.review();
+                    recordFailedExamAndContinue();
+                });
+            } else { questionBank.review(); recordFailedExamAndContinue(); }
             return;
         }
 
@@ -677,6 +1007,8 @@ console.info('[执业药师] Beta 1.4.0-beta.1 已加载');
             return;
         }
 
+        questionBank.review();
+
         const reviewQuestions = items.map((item, index) => {
             const dangerState = item.querySelector('.details-state.danger');
             const isWrong = Boolean(dangerState && dangerState.innerText.includes('回答错误'));
@@ -707,10 +1039,20 @@ console.info('[执业药师] Beta 1.4.0-beta.1 已加载');
             return;
         }
 
-        debugLog(`[Script] 发现 ${wrongQuestions.length} 道错题，请求 AI 修正答案...`);
-        askAiForAnswer(buildCorrectionPrompt(wrongQuestions), EXAM_CORRECTION_SYSTEM_PROMPT).then(correctionText => {
+        const bankCorrections = new Map();
+        const unansweredWrong = wrongQuestions.filter(question => {
+            const answer = questionBank.lookup(question);
+            if (!answer) return true;
+            bankCorrections.set(question.index, answer);
+            return false;
+        });
+        const correctionRequest = unansweredWrong.length
+            ? askAiForAnswer(buildCorrectionPrompt(unansweredWrong), EXAM_CORRECTION_SYSTEM_PROMPT)
+            : Promise.resolve('');
+        correctionRequest.then(correctionText => {
             if (!correctionCurrent()) return;
             const correctedMap = parseAnswersToMap(correctionText);
+            bankCorrections.forEach((answer, number) => correctedMap.set(number, answer));
             let applied = 0;
             wrongQuestions.forEach(question => {
                 const letters = correctedMap.get(question.index);
@@ -888,6 +1230,8 @@ console.info('[执业药师] Beta 1.4.0-beta.1 已加载');
      * 若平台未自动跳转则直接返回考试列表，让主循环继续开始下一场考试。
      */
     function proceedAfterExamPassed() {
+        questionBank.review();
+        questionBank.flush();
         // 确保返回考试列表后仍按“考试”流程处理，而不是被当作课程流程跳回课程页。
         GM_setValue('sclpa_nav_context', 'exam');
         currentNavContext = 'exam';
@@ -1899,6 +2243,8 @@ console.info('[执业药师] Beta 1.4.0-beta.1 已加载');
                 isModePanelCreated = false;
                 return;
             }
+
+            questionBank.mount(panel);
 
             // Tab switching functionality
             const tabBtns = document.querySelectorAll('.tab-btn');
@@ -2980,6 +3326,7 @@ console.info('[执业药师] Beta 1.4.0-beta.1 已加载');
         const visibleReviewState = Array.from(document.querySelectorAll('.examination-body-item .details-state'))
             .find(element => element.offsetParent !== null);
         if (visibleReviewState) {
+            questionBank.review();
             debugLog('[Script] Current view is the correction review page, skipping auto answering.');
             return;
         }
@@ -3000,9 +3347,9 @@ console.info('[执业药师] Beta 1.4.0-beta.1 已加载');
         }
 
         // 自动重试轮次：若本页所有题目都有记忆答案，直接作答，不再请求 AI。
-        if (examAnswerMemory.size > 0) {
+        {
             const items = Array.from(examinationItems);
-            const rememberedAnswers = items.map(item => getRememberedAnswerForItem(item));
+            const rememberedAnswers = items.map(item => getPreferredAnswerForItem(item));
             if (rememberedAnswers.length > 0 && rememberedAnswers.every(answer => answer)) {
                 debugLog('[Script] Using remembered answers to answer current page directly (auto retry round).');
                 currentQuestionBatchText = fullQuestionBatchContent;
@@ -3027,7 +3374,8 @@ console.info('[执业药师] Beta 1.4.0-beta.1 已加载');
         }
 
         currentQuestionBatchText = fullQuestionBatchContent; // Update current batch text
-        aiHelperTextarea.value = fullQuestionBatchContent + buildRetryHistoryContext(examinationItems); // Set textarea value with all questions
+        const unansweredItems = Array.from(examinationItems).filter(item => !getPreferredAnswerForItem(item));
+        aiHelperTextarea.value = unansweredItems.map(item => item.innerText.trim()).join('\n\n') + '\n请保留以上原题号输出答案。' + buildRetryHistoryContext(unansweredItems); // Set textarea value with all questions
         aiHelperResultDiv.innerText = '正在向AI发送请求...';
         debugLog('[Script] New batch of exam questions copied to AI helper textarea, triggering AI query...');
 
@@ -3107,6 +3455,7 @@ console.info('[执业药师] Beta 1.4.0-beta.1 已加载');
             .map(option => option.innerText.trim())
             .filter(Boolean);
         lastAttemptData.set(title, { answer: answerText, options, title });
+        questionBank.attempt(item);
     }
 
     /**
@@ -3121,7 +3470,7 @@ console.info('[执业药师] Beta 1.4.0-beta.1 已加载');
         for (const item of items) {
             const title = item.querySelector('.examination-body-title')?.innerText.trim() || '';
             const number = title.match(/^(\d+)\s*[、.．:：)）]/)?.[1];
-            const answer = canonicalAnswer(getRememberedAnswerForItem(item) || answers.get(Number(number)) || '');
+            const answer = canonicalAnswer(getPreferredAnswerForItem(item) || answers.get(Number(number)) || '');
             const options = Array.from(item.querySelectorAll('.examination-check-item')).map(option => option.innerText.trim());
             const question = { title: getNormalizedQuestionTitle(item), options };
             if (!number || !answer || [...answer].some(letter => !options.some(text => text.startsWith(letter + '.'))) || isConfirmedWrongAnswer(question, answer)) {
@@ -3133,6 +3482,7 @@ console.info('[执业药师] Beta 1.4.0-beta.1 已加载');
         }
         if (!selections.length) return false;
         selections.forEach(([item, answer]) => selectAnswersForItem(item, answer));
+        questionBank.flush();
         return true;
     }
 
@@ -3315,6 +3665,7 @@ console.info('[执业药师] Beta 1.4.0-beta.1 已加载');
         if (targetButton) {
             debugLog('[Script] Found "开始考试" button, clicking it...');
             lastStartedExamSignature = getExamRowSignature(targetButton);
+            questionBank.start(targetButton);
             examSummaryNotified = false; // 新一批开始，重置“全部完成”提示标记
             clickElement(targetButton);
         } else if (startExamButtons.length > 0) {
@@ -3881,7 +4232,7 @@ console.info('[执业药师] Beta 1.4.0-beta.1 已加载');
      * Start the script
      */
     function startScript() {
-        debugLog(`[Script] Sichuan Licensed Pharmacist Continuing Education (v1.4.0-beta.1) started.`);
+        debugLog(`[Script] Sichuan Licensed Pharmacist Continuing Education (v1.4.0-beta.2) started.`);
         debugLog(`[Script] Service status: ${isServiceActive ? 'Running' : 'Paused'} | Current speed: ${currentPlaybackRate}x`);
         currentPageHash = window.location.hash;
         currentNavContext = GM_getValue('sclpa_nav_context', ''); // Load initial navigation context

@@ -1,9 +1,9 @@
-# 四川省执业药师继续教育 · 1.4.0-beta.1
+# 四川省执业药师继续教育 · 1.4.0-beta.2
 
 适用于 `www.sclpa.cn` 与 `zyys.ihehang.com`，提供课程导航、视频播放控制、文章完成状态检测和 AI 答题辅助。支持 ScriptCat（脚本猫）和 Tampermonkey。
 
 
-[安装测试版](https://raw.githubusercontent.com/Cooanyh/zhiyeyaoshi/beta/1.4.0-beta.1/zhiyeyaoshi-beta.user.js) · [问题反馈](https://github.com/Cooanyh/zhiyeyaoshi/issues)
+[安装测试版](https://raw.githubusercontent.com/Cooanyh/zhiyeyaoshi/beta/1.4.0-beta.2/zhiyeyaoshi-beta.user.js) · [问题反馈](https://github.com/Cooanyh/zhiyeyaoshi/issues)
 
 课程和考试流程适配 `zyys.ihehang.com`，入口为[四川省执业药师继续教育网站](https://www.sclpa.cn/Default.aspx)。
 
@@ -39,7 +39,7 @@
 
 ### 2. 安装对应脚本
 
-- [GitHub：安装测试版](https://raw.githubusercontent.com/Cooanyh/zhiyeyaoshi/beta/1.4.0-beta.1/zhiyeyaoshi-beta.user.js)
+- [GitHub：安装测试版](https://raw.githubusercontent.com/Cooanyh/zhiyeyaoshi/beta/1.4.0-beta.2/zhiyeyaoshi-beta.user.js)
 
 点击安装链接，在脚本管理器中确认安装，然后刷新学习页面。若浏览器只显示源码，可将完整代码复制到脚本管理器新建的脚本中并保存。
 
@@ -112,7 +112,20 @@ AI 答案可能出错，自动纠错不保证通过考试。请核对平台结�
 
 确认 Key 有效、账号可使用当前配置的模型、接口地址正确，并查看控制台或 AI 面板的错误提示。反馈时请隐藏 Key 和个人信息。
 
-## 测试版更新：1.4.0-beta.1
+## 本地题库
+
+在“设置 → 本地题库”中使用。**自动保存默认关闭**；首次打开题库功能会显示详细说明，阅读后仍需手动开启记录。
+
+- 开启后，做过的题按“板块 → 测试名称”保存。只有平台逐题确认的答案标为正确；仅显示总分通过或重试后仍未确认的题显示“未得出”。
+- 可搜索、预览层级、题目及答案，并导出 ZIP。解压后双击 `index.html` 即可离线查看，无需服务器。
+- 支持导入同格式的 JSON 或 ZIP。导入检索不要求板块和测试名称对应，按题干及完整选项匹配，选项重排会重新映射答案；冲突和未得出的答案不会用于自动答题，未命中的题交给 AI。
+- 保存开关关闭时，已有题库仍可检索、预览、导入和导出。题库保存在当前脚本管理器中，不包含账号、密钥或请求记录；清理管理器或更换浏览器前请先导出备份。
+
+最多 5000 题、JSON 8 MiB；预览每页 40 题。导入数据和题目答案仍需自行核对。详见[题库格式说明](https://github.com/Cooanyh/zhiyeyaoshi/blob/beta/1.4.0-beta.2/doc/QUESTION_BANK.md)。
+
+## 测试版更新：1.4.0-beta.2
+
+- 新增默认关闭的本地题库记录、首次使用说明、层级预览、ZIP 导出、题库导入与优先匹配。
 
 - 修复公需视频反复返回列表、加载卡住及播放器遮罩不消失的问题；持续加载失败时有限重试并跳过，保留未完成状态。
 - 学习倍率同时作用于视频和公需文章；后台调度支持文章、切课及答题流程，恢复页面时不补算冻结期间的阅读时长。

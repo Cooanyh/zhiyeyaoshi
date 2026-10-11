@@ -16,7 +16,7 @@ const {chromium}=require(process.env.PLAYWRIGHT_MODULE_PATH||'playwright');
   source=source.replace("version: '"+version+"'","version: 'synthetic-next-beta'");await page.reload();assert.equal(await page.locator('#sclpa-release-notice').count(),1,'new version must announce once');await page.locator('#sclpa-release-notice').getByRole('button',{name:'稍后'}).click();
   await page.locator('.tab-btn[data-tab=tutorial]').click();assert.equal(await page.locator('#site-content').evaluate(n=>n.classList.contains('active')),true,'helper tabs must not change site tabs');await page.locator('.tab-btn[data-tab=site]').evaluate(n=>n.click());assert.equal(await page.evaluate(()=>window.siteClicked),true);assert.doesNotMatch(await page.locator('#tab-tutorial').innerText(),/不要折叠|默认16倍|始终处于前台/);
   await page.locator('#copy-diagnostics-btn').click();const diagnostic=await page.evaluate(()=>copiedDiagnostics);assert.doesNotMatch(diagnostic,/synthetic-private|secret|api_key|Bearer|https:/);assert.equal(JSON.parse(diagnostic).version,'synthetic-next-beta');await page.evaluate(()=>panelTest.dismiss());
-  for(let i=0;i<25;i++){await page.locator('#show-release-notes-btn').click();await page.locator('#sclpa-release-dialog').getByRole('button',{name:'我知道了',exact:true}).click();}assert.equal(await page.locator('#sclpa-release-dialog').count(),0);
+  for(let i=0;i<25;i++){await page.locator('#show-release-notes-btn').click();await page.locator('#sclpa-release-dialog').getByRole('button',{name:'我知道了',exact:true}).click();await page.locator('#sclpa-release-dialog').waitFor({state:'detached'});}assert.equal(await page.locator('#sclpa-release-dialog').count(),0);
   console.log('PASS: once-per-version announcement, cumulative Beta release notes, rewritten tutorial, repeated dialog cleanup and allowlisted clipboard diagnostics');
   const cdp=await page.context().newCDPSession(page);await cdp.send('HeapProfiler.enable');
   const listeners=async()=>{let total=0;for(const expression of ['document','window']){const object=await cdp.send('Runtime.evaluate',{expression});total+=(await cdp.send('DOMDebugger.getEventListeners',{objectId:object.result.objectId})).listeners.length;await cdp.send('Runtime.releaseObject',{objectId:object.result.objectId});}return total;};
@@ -24,6 +24,21 @@ const {chromium}=require(process.env.PLAYWRIGHT_MODULE_PATH||'playwright');
   for(let i=0;i<40;i++){await page.evaluate(()=>panelTest.helper());await page.locator('#ai-helper-close-btn').click();}await cdp.send('HeapProfiler.collectGarbage');assert.equal(await listeners(),baseline,'helper recreation must not retain global drag listeners');assert.ok((await cdp.send('Memory.getDOMCounters')).nodes<nodesBefore+100);
   assert.equal(await page.evaluate(()=>document.body.style.userSelect),'');
   await page.locator('.tab-btn[data-tab=control]').click();
+  for(const viewport of [{width:1707,height:800},{width:1280,height:720},{width:853,height:600},{width:320,height:568}] ){
+   await page.setViewportSize(viewport);await page.locator('#panel-reset-position').click();let first;
+   for(const tab of ['control','settings','tutorial']){
+    await page.locator('#mode-switcher-panel .tab-btn[data-tab='+tab+']').click();const box=await page.locator('#mode-switcher-panel').boundingBox();
+    assert.equal(box.width,Math.min(480,viewport.width-24));assert.equal(box.height,Math.min(560,viewport.height-24));
+    if(first)assert.deepEqual(box,first,'switching tabs must preserve size and position');else first=box;
+    assert.ok(box.x>=0&&box.y>=0&&box.x+box.width<=viewport.width&&box.y+box.height<=viewport.height);
+    for(const id of ['panel-reset-position','mode-switcher-toggle-collapse']){const button=page.locator('#'+id),b=await button.boundingBox();assert.ok(b.width>=44&&b.height>=36);assert.ok(await button.evaluate(n=>n.scrollWidth<=n.clientWidth),'header text must fit');}
+    if(viewport.width===1707)await page.locator('#mode-switcher-panel').screenshot({path:path.join(os.tmpdir(),'sclpa-panel-desktop-'+tab+'.png')});
+   }
+   await page.locator('#mode-switcher-panel .tab-btn[data-tab=settings]').click();const before=await page.locator('#mode-switcher-header').boundingBox();await page.locator('#mode-switcher-content').evaluate(n=>{n.scrollTop=n.scrollHeight;});assert.deepEqual(await page.locator('#mode-switcher-header').boundingBox(),before,'scroll must stay inside content');
+   await page.locator('#mode-switcher-toggle-collapse').click();assert.equal(await page.locator('#mode-switcher-toggle-collapse').innerText(),'展开');assert.equal((await page.locator('#mode-switcher-panel').boundingBox()).height,72);await page.locator('#mode-switcher-toggle-collapse').click();assert.equal(await page.locator('#mode-switcher-toggle-collapse').innerText(),'收起');
+  }
+  await page.setViewportSize({width:1050,height:900});await page.locator('#panel-reset-position').click();await page.locator('#mode-switcher-panel .tab-btn[data-tab=control]').click();
+  console.log('PASS: fixed 480x560 panel across tabs, four viewport sizes, internal scrolling, readable 44x36 controls and compact 72px bar');
   const header=page.locator('#mode-switcher-header');let rect=await header.boundingBox();await page.mouse.move(rect.x+70,rect.y+20);await page.mouse.down();await page.mouse.move(60,80,{steps:8});await page.mouse.up();assert.ok(await page.evaluate(()=>GM_getValue('sclpa_panel_position',null).x<100));
   await page.reload();assert.equal(await page.locator('#sclpa-release-notice').count(),0);assert.ok((await page.locator('#mode-switcher-panel').boundingBox()).x<100);
   rect=await page.locator('#mode-switcher-header').boundingBox();await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:rect.x+70,y:rect.y+18}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:220,y:160}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});assert.ok(await page.evaluate(()=>GM_getValue('sclpa_panel_position',null).x>100),'touch pointer drag must update position');

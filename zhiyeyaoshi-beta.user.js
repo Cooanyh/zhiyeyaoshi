@@ -42,6 +42,8 @@ console.info('[执业药师] Beta 1.4.0-beta.2 已加载');
     let currentPlaybackRate = GM_getValue('sclpa_playback_rate', 1.0);
     // Get user-defined AI API Key from storage
     let aiApiKey = GM_getValue('sclpa_deepseek_api_key', '请在此处填入您自己的 DeepSeek API Key');
+    let aiModel = GM_getValue('sclpa_deepseek_model', 'deepseek-flash');
+    if (typeof aiModel !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/.test(aiModel)) aiModel = 'deepseek-flash';
 
     const CONFIG = {
         // Use user-defined playback speed
@@ -2157,17 +2159,22 @@ console.info('[执业药师] Beta 1.4.0-beta.2 已加载');
                             <div class="section-title">AI 设置</div>
                             <div class="setting-row">
                                 <label for="api-key-input">DeepSeek API Key</label>
-                                <input type="password" id="api-key-input" class="api-key-input" placeholder="请输入您的 API Key" value="">
-                                <div id="api-key-status" class="api-key-status not-configured">
+                                <input type="password" id="api-key-input" class="api-key-input" placeholder="请输入您的 API Key" autocomplete="off" spellcheck="false" value="">
+                                <div id="api-key-status" role="status" aria-live="polite" class="api-key-status not-configured">
                                     ⚠️ 未配置 API Key
                                 </div>
                             </div>
                             <button id="api-key-save-btn" class="panel-btn" style="background: #0078D4; margin-top: 12px;">
-                                保存设置
+                                保存并检测
                             </button>
+                            <div class="setting-row" style="margin-top: 12px;">
+                                <label for="ai-model-select">答题模型</label>
+                                <select id="ai-model-select" class="api-key-input" style="width:100%;max-width:100%;" disabled></select>
+                                <div style="font-size:12px;color:#666;margin-top:6px;">默认 deepseek-flash；检测成功后可选择官方返回的可用模型。</div>
+                            </div>
                         </div>
                     </div>
-                    
+
                     <!-- 教程面板 -->
                     <div class="tab-content" id="tab-tutorial">
                         <div class="tutorial-content">
@@ -2336,49 +2343,7 @@ console.info('[执业药师] Beta 1.4.0-beta.2 已加载');
                 });
             }
 
-            // API Key
-            const apiKeyInput = document.getElementById('api-key-input');
-            const apiKeyStatus = document.getElementById('api-key-status');
-            const apiKeySaveBtn = document.getElementById('api-key-save-btn');
-            
-            // Load current API key
-            const currentKey = GM_getValue('sclpa_deepseek_api_key', '');
-            if (apiKeyInput) {
-                apiKeyInput.value = currentKey;
-            }
-            if (apiKeyStatus && currentKey) {
-                apiKeyStatus.className = 'api-key-status configured';
-                apiKeyStatus.innerHTML = '✅ API Key 已配置';
-            }
-            
-            if (apiKeySaveBtn && apiKeyInput) {
-                apiKeySaveBtn.onclick = () => {
-                    const newKey = apiKeyInput.value.trim();
-                    if (newKey) {
-                        GM_setValue('sclpa_deepseek_api_key', newKey);
-                        CONFIG.AI_API_SETTINGS.API_KEY = newKey;
-                        aiApiKey = newKey;
-                        const aiSubmit = document.getElementById('ai-helper-submit-btn');
-                        if (aiSubmit) aiSubmit.disabled = false;
-                        const aiWarning = document.getElementById('ai-key-warning');
-                        if (aiWarning) aiWarning.style.display = 'none';
-                        if (apiKeyStatus) {
-                            apiKeyStatus.className = 'api-key-status configured';
-                            apiKeyStatus.innerHTML = '✅ API Key 已保存！';
-                        }
-                        scriptSetTimeout(() => {
-                            aiApiKey = apiKeyInput.value.trim();
-                            CONFIG.AI_API_SETTINGS.API_KEY = aiApiKey;
-                            showAutomationNotice('API Key 已保存并应用。', { autoHideMs: 6000 });
-                        }, 100);
-                    } else {
-                        if (apiKeyStatus) {
-                            apiKeyStatus.className = 'api-key-status not-configured';
-                            apiKeyStatus.innerHTML = '⚠️ 请输入有效的 API Key';
-                        }
-                    }
-                };
-            }
+            mountDeepseekSettings();
 
             // Navigation buttons
             const navAllInOneBtn = document.getElementById('nav-all-in-one-btn');
@@ -2835,6 +2800,68 @@ console.info('[执业药师] Beta 1.4.0-beta.2 已加载');
     // --- AI 调用 (AI Invocation) ---
     // ===================================================================================
 
+    // 输入防抖检测与模型选择；旧请求结果不覆盖当前配置。
+    function mountDeepseekSettings() {
+        const input=document.getElementById('api-key-input'), status=document.getElementById('api-key-status'), save=document.getElementById('api-key-save-btn'), select=document.getElementById('ai-model-select');
+        if(!input||!status||!save||!select)return;
+        let generation=0, debounce=null, watchdog=null, request=null, models=[], detectedKey='';
+        const savedKey=()=>GM_getValue('sclpa_deepseek_api_key','');
+        const setStatus=(message,ok=false)=>{status.className='api-key-status '+(ok?'configured':'not-configured');status.textContent=message;};
+        function renderModels(ids,selected){select.replaceChildren();ids.forEach(id=>{const option=document.createElement('option');option.value=id;option.textContent=id+(id==='deepseek-flash'?'（默认）':'');select.append(option);});select.value=selected;select.disabled=!ids.length;}
+        function invalidate(){generation++;if(debounce!==null){scriptClearTimeout(debounce);debounce=null;}if(watchdog!==null){scriptClearTimeout(watchdog);watchdog=null;}const old=request;request=null;try{old?.abort?.();}catch(_){}return generation;}
+        function applyModel(){if(input.value.trim()===savedKey()&&models.includes(select.value)){aiModel=select.value;GM_setValue('sclpa_deepseek_model',aiModel);}}
+        function check(key,epoch){
+            let settled=false;
+            const current=()=>!settled&&epoch===generation&&input.isConnected&&input.value.trim()===key;
+            function finish(message,ok=false){if(!current())return false;settled=true;if(watchdog!==null){scriptClearTimeout(watchdog);watchdog=null;}request=null;setStatus(message,ok);return true;}
+            setStatus('正在检测 API Key 并获取可用模型…');
+            watchdog=scriptSetTimeout(()=>{const old=request;if(finish('检测超时，请检查网络后点击“保存并检测”重试。')){try{old?.abort?.();}catch(_){}}},15500);
+            try{
+                const handle=GM_xmlhttpRequest({method:'GET',url:'https://api.deepseek.com/models',headers:{Authorization:`Bearer ${key}`},timeout:15000,
+                    onload:response=>{
+                        if(!current())return;
+                        if(response.status!==200){const messages={401:'API Key 无效或已失效，请核对后重新输入。',402:'账户余额不足，请充值后重试。',403:'访问被拒绝，请检查 API Key 权限。',429:'请求过于频繁，请稍后重试。'};finish(messages[response.status]||`模型检测失败（HTTP ${Number(response.status)||0}），请稍后重试。`);return;}
+                        let ids;
+                        try{const body=JSON.parse(response.responseText);if(!Array.isArray(body.data)||body.data.length>200)throw Error();ids=[...new Set(body.data.filter(m=>m&&typeof m.id==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/.test(m.id)&&(!Array.isArray(m.output_modalities)||m.output_modalities.includes('text'))).map(m=>m.id))];}catch(_){finish('模型列表格式异常，暂时无法确认可用模型。');return;}
+                        if(!ids.length){finish('鉴权通过，但没有返回可用于答题的文本模型。');return;}
+                        const previous=key===savedKey()?aiModel:'deepseek-flash';
+                        const chosen=ids.includes(previous)?previous:ids.includes('deepseek-flash')?'deepseek-flash':ids[0];
+                        ids.sort((a,b)=>a==='deepseek-flash'?-1:b==='deepseek-flash'?1:0);
+                        models=ids;detectedKey=key;renderModels(ids,chosen);applyModel();
+                        const fallback=!ids.includes('deepseek-flash')?'；未提供 deepseek-flash，已选可用模型':'';
+                        finish(`API Key 鉴权通过，已获取 ${ids.length} 个可用模型${fallback}。${key===savedKey()?'':' Key 尚未保存。'} 模型列表不代表余额充足。`,true);
+                    },
+                    onerror:()=>finish('网络连接失败，请检查网络后重试。'),
+                    ontimeout:()=>finish('检测超时，请检查网络后重试。'),
+                    onabort:()=>finish('检测已取消，可点击“保存并检测”重试。')
+                });
+                if(current())request=handle;
+            }catch(_){finish('无法发起模型检测，请检查脚本管理器的网络访问权限。');}
+        }
+        function schedule(immediate=false){
+            const epoch=invalidate(),key=input.value.trim();models=[];detectedKey='';renderModels([], '');
+            if(!key){setStatus('请输入 API Key；输入后将自动检测。');return;}
+            if(key.length>512||/[\r\n]/.test(key)){setStatus('API Key 格式无效，请检查输入。');return;}
+            setStatus('待检测；输入的 Key 仅发送至 DeepSeek 官方接口。');
+            if(immediate)check(key,epoch);else debounce=scriptSetTimeout(()=>{debounce=null;check(key,epoch);},800);
+        }
+        input.value=savedKey();renderModels([aiModel],aiModel);select.disabled=true;
+        setStatus(input.value?'API Key 已配置；编辑后自动检测，也可点击“保存并检测”。':'请输入 API Key；输入后将自动检测。');
+        input.oninput=()=>schedule();
+        select.onchange=()=>{if(detectedKey!==input.value.trim()||!models.includes(select.value))return;applyModel();setStatus(input.value.trim()===savedKey()?`已选择 ${select.value}，立即用于后续答题。`:`已选择 ${select.value}，请点击“保存并检测”应用。`,true);};
+        save.onclick=()=>{
+            const key=input.value.trim();if(!key||key.length>512||/[\r\n]/.test(key)){setStatus('请输入有效的 API Key。');return;}
+            const changed=key!==savedKey();
+            GM_setValue('sclpa_deepseek_api_key',key);CONFIG.AI_API_SETTINGS.API_KEY=key;aiApiKey=key;
+            if(changed){aiModel='deepseek-flash';GM_setValue('sclpa_deepseek_model',aiModel);}
+            const submit=document.getElementById('ai-helper-submit-btn');if(submit)submit.disabled=false;
+            const warning=document.getElementById('ai-key-warning');if(warning)warning.style.display='none';
+            if(detectedKey===key&&models.length)applyModel();
+            schedule(true);
+        };
+        window.addEventListener('pagehide',()=>{invalidate();models=[];detectedKey='';});
+    }
+
     /**
      * Send request to DeepSeek AI and get answer
      * @param {string} question - User's question
@@ -2848,7 +2875,7 @@ console.info('[执业药师] Beta 1.4.0-beta.2 已加载');
             }
             const systemPrompt = systemPromptOverride || '你是一个乐于助人的问题回答助手。聚焦于执业药师相关的内容，请根据用户提出的问题，提供准确、清晰的解答。注意回答时仅仅包括答案，不允许其他额外任何解释，输出为一行一道题目的答案，答案只能是题目序号:字母选项，不能包含文字内容。单选输出示例：1.A。多选输出示例：1.ABC。';
             const payload = {
-                model: "deepseek-v4-flash",
+                model: aiModel,
                 messages: [{
                     "role": "system",
                     "content": systemPrompt

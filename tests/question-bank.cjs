@@ -112,7 +112,10 @@
     const corrupt=Buffer.from(bytes);corrupt[50]^=1;
     assert.equal(await page.evaluate(async values=>{try{await bankTest.bank.importFile(new File([Uint8Array.from(values)],'corrupt.zip'));return false;}catch(_){return true;}},[...corrupt]),true);
     console.log('PASS: styled online/offline HTML, escaped text, safe filenames, ZIP/JSON roundtrip, standard Deflate and checksum rejection');
-    await page.getByRole('dialog').getByRole('button',{name:'关闭',exact:true}).click();await page.setViewportSize({width:390,height:844});
+    await page.getByRole('dialog').getByRole('button',{name:'关闭',exact:true}).click();
+    // Close the separate AI window before narrow settings interactions; it can cover the panel.
+    if(await page.locator('#ai-helper-close-btn').isVisible())await page.locator('#ai-helper-close-btn').click();
+    await page.setViewportSize({width:390,height:844});
     await page.evaluate(()=>bankTest.bank.open());assert.ok((await page.getByRole('dialog').boundingBox()).width<=390);await page.screenshot({path:path.join(out,'narrow-preview.png')});await page.getByRole('dialog').getByRole('button',{name:'关闭',exact:true}).click();
     const uiPayload={...single,questions:[{title:'UI导入的合成题',type:'single',options:[{label:'A',text:'对'},{label:'B',text:'错'}],answer:['A'],status:'confirmed'}]};const uiPath=path.join(out,'preset.json');fs.writeFileSync(uiPath,JSON.stringify(uiPayload));const picking=page.waitForEvent('filechooser');await page.locator('#tab-settings').getByRole('button',{name:'导入题库',exact:true}).click();await (await picking).setFiles(uiPath);await page.waitForFunction(()=>bankTest.bank.snapshot().questions.some(q=>q.title==='UI导入的合成题'));assert.equal(await page.evaluate(()=>bankTest.bank.snapshot().questions.find(q=>q.title==='UI导入的合成题').section),'导入题库');
     const many={...single,questions:Array.from({length:1500},(_,i)=>({...single.questions[0],title:'合成容量题'+i,exam:'合成测试'+i}))};
